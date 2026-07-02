@@ -1,0 +1,5 @@
+{"type":"user","promptSource":"typed","message":{"role":"user","content":[{"type":"text","text":"a genuine prompt with enough length here"}]},"timestamp":"2026-03-01T10:00:00.000Z","sessionId":"m1"}
+{ this is not valid json ]]
+{"type":"assistant","message":{"role":"assistant","model":"claude-opus-4-8","content":[],"usage":{"input_tokens":10,"output_tokens":5}},"timestamp":"2026-03-01T10:00:05.000Z","sessionId":"m1"}
+not even close to json
+{"type":"weird-unknown-type","timestamp":"2026-03-01T10:00:06.000Z","sessionId":"m1"}
