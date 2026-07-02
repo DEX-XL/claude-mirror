@@ -2,12 +2,13 @@
 
 **See who you are through what you asked.**
 
-Spotify Wrapped told you what you listened to. Claude Mirror tells you *who you are*. It reads your local Claude history, analyzes not just what you built but **how you think** — your traits, your archetype, your signature habits, how you've grown — and renders it as a beautiful, shareable card.
+Spotify Wrapped told you what you listened to. Claude Mirror tells you *who you are*. Run it once and it will use your local Claude Code history if it exists, or prompt you for a Claude export zip if it does not. It analyzes not just what you built but **how you think** — your traits, your archetype, your signature habits, how you've grown — and renders it as a beautiful, shareable card.
 
 100% local. Consent-first. One command.
 
 ```bash
-npx claude-mirror
+npx claude-mirror                      # use local Claude Code history, or get prompted for an export zip
+npx claude-mirror ./claude-export.zip  # skip the prompt and use an export directly
 ```
 
 > Not another stats tool with a costume on. The tokens-and-heatmaps stuff is the warm-up. The product is the **mirror**: a real, evidence-backed read on how you collaborate with AI — with quotes.
@@ -41,8 +42,11 @@ The persona pass shells out to the **Claude Code CLI in headless mode** (`claude
 ## Install & usage
 
 ```bash
-npx claude-mirror                # full experience (asks consent before the LLM pass)
+npx claude-mirror                # full experience from local Claude Code history
+npx claude-mirror ./claude-export.zip  # full experience from a Claude export zip
 ```
+
+If you use Claude in chat instead of Claude Code, you can still just run the command. It will ask for your export zip path if it does not find local Claude Code history.
 
 | Flag | Effect |
 |---|---|

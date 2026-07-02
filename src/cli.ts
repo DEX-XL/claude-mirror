@@ -64,6 +64,7 @@ function parseArgs(argv: string[]): Args {
         if (t.startsWith("--period=")) a.period = t.slice(9);
         else if (t.startsWith("--out=")) a.out = t.slice(6);
         else if (t.startsWith("--model=")) a.model = t.slice(8);
+        else if (!t.startsWith("-") && !a.importPath) a.importPath = t;
     }
   }
   return a;
@@ -71,7 +72,7 @@ function parseArgs(argv: string[]): Args {
 
 const HELP = `claude-mirror v${VERSION} — see who you are through what you asked.
 
-Usage: claude-mirror [options]
+Usage: claude-mirror [options] [export.zip | conversations.json]
 
   --stats-only        skip the LLM persona pass (no prompt, no network)
   --period <spec>     time window: 2026 | all | 6m  (default: current year)
@@ -79,10 +80,15 @@ Usage: claude-mirror [options]
   --out <dir>         output directory (default: cwd)
   --json              also write profile.json
   --model <name>      model for persona pass (default: sonnet)
-  --import <zip>      claude.ai data export (v1.1 — interface stubbed)
+  --import <zip>      claude.ai export zip or conversations JSON
   --yes, -y           skip the consent prompt (CI / power users)
   --help, -h          this help
   --version, -v       version
+
+For Claude Code users, omit the path and it reads ~/.claude/projects.
+For general Claude users, pass the export file directly, or just run the
+command and it will ask for the export path if no local Claude Code history
+is available.
 
 100% local. The only network call is the optional persona pass, only after consent.`;
 
@@ -101,6 +107,18 @@ async function askConsent(sampleCount: number): Promise<boolean> {
   const ans = (await rl.question("  Proceed with persona analysis? [y/N] ")).trim().toLowerCase();
   rl.close();
   return ans === "y" || ans === "yes";
+}
+
+async function askForImportPath(): Promise<string | undefined> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  log("");
+  log("  I couldn't find local Claude Code history on this machine.");
+  log("  If you use Claude in chat, export your data from Claude settings and");
+  log("  paste the zip path here.");
+  log("");
+  const answer = (await rl.question("  Claude export path (or blank to exit): ")).trim();
+  rl.close();
+  return answer || undefined;
 }
 
 function nowHint(): string {
@@ -124,34 +142,71 @@ async function main() {
   if (args.help) { console.log(HELP); return; }
   if (args.version) { console.log(VERSION); return; }
 
-  if (args.importPath) {
-    const { importClaudeAiExport } = await import("./ingest/claudeai-import.js");
-    try {
-      await importClaudeAiExport(args.importPath);
-    } catch (e) {
-      log(e instanceof Error ? e.message : String(e));
-      process.exitCode = 1;
-      return;
-    }
-  }
-
   const projectsDir = args.projectsDir ?? defaultProjectsDir();
   const nowMs = Date.now();
 
-  log("Reading your Claude history…");
-  const ingestResult = await ingest(projectsDir);
-  if (ingestResult.files === 0) {
-    log(`No session files found in ${projectsDir}.`);
-    log("Is Claude Code installed and used on this machine? Try --projects-dir <path>.");
-    process.exitCode = 1;
-    return;
+  let events: Awaited<ReturnType<typeof ingest>>["events"] = [];
+  let parsed = 0;
+  let skipped = 0;
+
+  if (args.importPath) {
+    const { importClaudeAiExport } = await import("./ingest/claudeai-import.js");
+    try {
+      log(`Reading Claude export from ${args.importPath}…`);
+      const imported = await importClaudeAiExport(args.importPath);
+      if (imported.events.length === 0) {
+        log(`No conversations found in ${args.importPath}.`);
+        process.exitCode = 1;
+        return;
+      }
+      events = imported.events;
+      parsed = imported.parsed;
+      skipped = imported.skipped;
+    } catch (error) {
+      log(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    log("Reading your Claude history…");
+    const ingestResult = await ingest(projectsDir);
+    if (ingestResult.files === 0) {
+      const importPath = await askForImportPath();
+      if (!importPath) {
+        log("No export provided. Exiting.");
+        process.exitCode = 1;
+        return;
+      }
+
+      const { importClaudeAiExport } = await import("./ingest/claudeai-import.js");
+      try {
+        log(`Reading Claude export from ${importPath}…`);
+        const imported = await importClaudeAiExport(importPath);
+        if (imported.events.length === 0) {
+          log(`No conversations found in ${importPath}.`);
+          process.exitCode = 1;
+          return;
+        }
+        events = imported.events;
+        parsed = imported.parsed;
+        skipped = imported.skipped;
+      } catch (error) {
+        log(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+        return;
+      }
+    } else {
+      log(
+        `Parsed ${ingestResult.parsed.toLocaleString()} events, skipped ${ingestResult.skipped.toLocaleString()} unrecognized (${ingestResult.malformed} malformed lines) across ${ingestResult.files} files.`
+      );
+      events = ingestResult.events;
+      parsed = ingestResult.parsed;
+      skipped = ingestResult.skipped;
+    }
   }
-  log(
-    `Parsed ${ingestResult.parsed.toLocaleString()} events, skipped ${ingestResult.skipped.toLocaleString()} unrecognized (${ingestResult.malformed} malformed lines) across ${ingestResult.files} files.`
-  );
 
   const period = resolvePeriod(args.period, nowMs);
-  const scoped = filterByPeriod(ingestResult.events, period);
+  const scoped = filterByPeriod(events, period);
   if (scoped.length === 0) {
     log(`No activity in period "${period.label}". Try --period all.`);
     process.exitCode = 1;
@@ -192,8 +247,8 @@ async function main() {
       version: VERSION,
       generatedAtHint: nowHint(),
       period: period.label,
-      eventsParsed: ingestResult.parsed,
-      eventsSkipped: ingestResult.skipped,
+      eventsParsed: parsed,
+      eventsSkipped: skipped,
     },
     stats,
     persona,
