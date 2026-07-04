@@ -1,9 +1,10 @@
 {
-  "name": "claude-mirror",
-  "version": "0.1.0",
-  "description": "See who you are through what you asked. A personality profile from your local Claude history. 100% local, consent-first.",
+  "name": "ai-mirror",
+  "version": "0.2.0",
+  "description": "Mirror — see who you are through what you asked. A living 3D brain, personality profile, and chat-with-yourself built from your AI history. 100% local, consent-first.",
   "type": "module",
   "bin": {
+    "ai-mirror": "dist/cli.js",
     "claude-mirror": "dist/cli.js"
   },
   "files": [

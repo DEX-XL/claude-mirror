@@ -60,6 +60,8 @@ export type StatsProfile = {
     top: { name: string; count: number }[];
     editReadRatio: number | null;
     testRuns: number;
+    /** Tool usage per project — the brain map's cross-links. */
+    byProject: { project: string; name: string; count: number }[];
   };
   conversationStyle: {
     medianPromptLength: number;

@@ -1,0 +1,94 @@
+import { createServer } from "node:http";
+import type { Profile } from "./types.js";
+import { renderReport } from "./render/template.js";
+import { buildMirrorPersona } from "./persona/mirror.js";
+import { detectBackend, runModel, type LlmBackend } from "./persona/runner.js";
+
+// The local web app: serves the live dashboard (report + working chat) on
+// 127.0.0.1 only. No telemetry, no external calls except the user's own
+// model backend for chat turns.
+
+export type ServeOptions = {
+  port?: number;
+  onReady?: (url: string) => void;
+  log?: (line: string) => void;
+};
+
+type ChatMsg = { role: "user" | "mirror"; text: string };
+
+function transcript(messages: ChatMsg[]): string {
+  return messages
+    .map((m) => (m.role === "user" ? `Them: ${m.text}` : `You (Mirror): ${m.text}`))
+    .join("\n");
+}
+
+export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<void> {
+  const port = opts.port ?? 3737;
+  const log = opts.log ?? (() => {});
+  const persona = buildMirrorPersona(profile);
+  let backend: LlmBackend = await detectBackend();
+  const html = renderReport(profile, { live: true });
+
+  const server = createServer(async (req, res) => {
+    const cors = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors);
+      return res.end();
+    }
+    if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      return res.end(html);
+    }
+    if (req.method === "GET" && req.url === "/api/health") {
+      res.writeHead(200, { "content-type": "application/json", ...cors });
+      return res.end(JSON.stringify({ ok: true, backend }));
+    }
+    if (req.method === "GET" && req.url === "/api/profile") {
+      res.writeHead(200, { "content-type": "application/json", ...cors });
+      return res.end(JSON.stringify(profile));
+    }
+    if (req.method === "POST" && req.url === "/api/chat") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", async () => {
+        try {
+          const { messages } = JSON.parse(body) as { messages: ChatMsg[] };
+          if (!Array.isArray(messages) || messages.length === 0) throw new Error("no messages");
+          if (backend === "none") backend = await detectBackend();
+          if (backend === "none") {
+            res.writeHead(503, { "content-type": "application/json", ...cors });
+            return res.end(
+              JSON.stringify({ error: "No Claude CLI or ANTHROPIC_API_KEY available for chat." })
+            );
+          }
+          const user =
+            `Conversation so far:\n${transcript(messages.slice(-20))}\n\n` +
+            `Reply as the Mirror. Output ONLY your reply text.`;
+          const reply = (await runModel(backend, persona, user, { model: "sonnet" })).trim();
+          log(`chat: ${messages[messages.length - 1].text.slice(0, 60)}`);
+          res.writeHead(200, { "content-type": "application/json", ...cors });
+          res.end(JSON.stringify({ reply }));
+        } catch (e) {
+          res.writeHead(500, { "content-type": "application/json", ...cors });
+          res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        }
+      });
+      return;
+    }
+    res.writeHead(404, cors);
+    res.end("not found");
+  });
+
+  await new Promise<void>((resolveReady, rejectReady) => {
+    server.on("error", rejectReady);
+    server.listen(port, "127.0.0.1", () => {
+      opts.onReady?.(`http://localhost:${port}`);
+      resolveReady();
+    });
+  });
+  // Keep process alive; caller owns lifecycle (Ctrl+C).
+}

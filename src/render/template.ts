@@ -1,5 +1,6 @@
 import type { Profile, Snapshot, TraitScore } from "../types.js";
 import { radarSvg } from "./radar.js";
+import { brainSection, BRAIN_CSS } from "./brain.js";
 
 function esc(s: string): string {
   return s
@@ -138,11 +139,12 @@ function deltaSection(profile: Profile): string {
     <div class="kicker">Since your last mirror (${esc(prev.date)})</div>
     <h2>What changed</h2>
     <div class="deltas">${rows.join("")}</div>
-    <p class="muted small">Run <code>npx claude-mirror</code> monthly to track your progress.</p>
+    <p class="muted small">Run <code>npx ai-mirror</code> monthly to track your progress.</p>
   </section>`;
 }
 
-export function renderReport(profile: Profile): string {
+export function renderReport(profile: Profile, opts: { live?: boolean } = {}): string {
+  const live = opts.live ?? false;
   const { stats, persona, meta } = profile;
   const accent = persona?.archetype.color ?? "#7c5cff";
   const quirkTop = stats.conversationStyle.quirks.slice(0, 4);
@@ -192,7 +194,7 @@ export function renderReport(profile: Profile): string {
     ${
       persona.taskMix.length
         ? `<section class="snap">
-      <div class="kicker">What you use Claude for</div>
+      <div class="kicker">What you use AI for</div>
       ${donut(persona.taskMix)}
       <p class="muted small">Estimated from a sample of your prompts.</p>
     </section>`
@@ -225,7 +227,7 @@ export function renderReport(profile: Profile): string {
             .join("")}
         </div>
         ${quirkTop[0] ? `<div class="card-quirk">You said “${esc(quirkTop[0].phrase)}” ${quirkTop[0].count}×</div>` : ""}
-        <div class="card-watermark">npx claude-mirror</div>
+        <div class="card-watermark">npx ai-mirror</div>
       </div>
       <div class="card-actions">
         <button id="download-card" class="btn">Download card (PNG)</button>
@@ -277,15 +279,15 @@ export function renderReport(profile: Profile): string {
   const shareText = persona
     ? `I'm "${persona.archetype.name}" (${persona.archetype.rarity})${
         quirkTop[0] ? ` — apparently I say "${quirkTop[0].phrase}" a lot` : ""
-      }. Get your Claude Mirror → npx claude-mirror`
-    : `I ran Claude Mirror on my Claude history. Get yours → npx claude-mirror`;
+      }. Get your Mirror → npx ai-mirror`
+    : `I ran Mirror on my AI history. Get yours → npx ai-mirror`;
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Claude Mirror${persona ? " — " + esc(persona.archetype.name) : ""}</title>
+<title>Mirror${persona ? " — " + esc(persona.archetype.name) : ""}</title>
 <style>
 :root{--accent:${accent};--bg:#0d0d12;--fg:#f4f4f8;--muted:#9a9aab}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -365,11 +367,28 @@ h2{font-size:clamp(24px,4vw,38px);letter-spacing:-.02em;margin-bottom:8px}
 .big{font-size:clamp(26px,5vw,54px);font-weight:800;letter-spacing:-.02em}
 footer{color:var(--muted);font-size:13px;padding:30px;text-align:center}
 code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;border-radius:6px}
+${BRAIN_CSS}
+/* chat dock */
+#chat-fab{position:fixed;bottom:22px;right:22px;z-index:50;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0b0b10;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 24px #0009}
+#chat-dock{position:fixed;bottom:22px;right:22px;z-index:51;width:min(380px,92vw);height:min(540px,80vh);background:#12121a;border:1px solid #ffffff1e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px #000c}
+#chat-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #ffffff12}
+#chat-head .t{font-weight:800} #chat-head .s{color:var(--muted);font-size:12px}
+#chat-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+#chat-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:82%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.45;text-align:left;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:var(--accent);color:#0b0b10;border-bottom-right-radius:4px}
+.msg.mirror{align-self:flex-start;background:#1e1e2a;border-bottom-left-radius:4px}
+.msg.thinking{color:var(--muted);font-style:italic}
+#chat-form{display:flex;gap:8px;padding:12px;border-top:1px solid #ffffff12}
+#chat-in{flex:1;background:#1a1a24;border:1px solid #ffffff1a;border-radius:10px;color:var(--fg);padding:10px 12px;font-size:14px;outline:none}
+#chat-send{background:var(--accent);border:none;border-radius:10px;color:#0b0b10;font-weight:800;padding:0 16px;cursor:pointer}
 </style>
 </head>
 <body>
+  ${brainSection(profile)}
+
   <section class="snap">
-    <div class="kicker">Claude Mirror · ${esc(meta.period)}</div>
+    <div class="kicker">Mirror · ${esc(meta.period)}</div>
     <div class="dash-nums">
       <div class="dash-num"><b>${fmt(stats.totals.prompts)}</b><span>prompts</span></div>
       <div class="dash-num"><b>${fmt(Math.round(stats.totals.estimatedHours))}h</b><span>active time</span></div>
@@ -404,10 +423,23 @@ code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;bor
 
   ${personaSections}
 
+  ${
+    live
+      ? `<button id="chat-fab" title="Talk to your Mirror">🪞</button>
+  <div id="chat-dock" hidden>
+    <div id="chat-head"><span style="font-size:20px">🪞</span><div><div class="t">Your Mirror</div><div class="s">knows you from ${fmt(
+      stats.totals.prompts
+    )} prompts · local only</div></div><button id="chat-close">×</button></div>
+    <div id="chat-log"></div>
+    <form id="chat-form"><input id="chat-in" placeholder="Ask yourself anything…" autocomplete="off"/><button id="chat-send">→</button></form>
+  </div>`
+      : ""
+  }
+
   <section class="snap outro">
     <div class="kicker">Keep the habit</div>
     <div class="big">Run it again next month.<br/>Watch yourself change.</div>
-    <div class="cmd">npx claude-mirror</div>
+    <div class="cmd">npx ai-mirror</div>
     <div class="card-actions">
       <a class="btn" id="share-x-2" target="_blank" rel="noopener">Share on X</a>
       <a class="btn btn-ghost" href="https://github.com/" target="_blank" rel="noopener">Star on GitHub ★</a>
@@ -492,6 +524,50 @@ code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;bor
   }
   var dl = document.getElementById('download-card');
   if(dl) dl.addEventListener('click', exportCard);
+
+  // ---- Mirror chat (live dashboard only) ----
+  var fab = document.getElementById('chat-fab');
+  if (fab) {
+    var dock = document.getElementById('chat-dock');
+    var logEl = document.getElementById('chat-log');
+    var form = document.getElementById('chat-form');
+    var input = document.getElementById('chat-in');
+    var messages = [];
+    function bubble(role, text){
+      var d = document.createElement('div');
+      d.className = 'msg ' + role;
+      d.textContent = text;
+      logEl.appendChild(d);
+      logEl.scrollTop = logEl.scrollHeight;
+      return d;
+    }
+    fab.addEventListener('click', function(){
+      dock.hidden = false; fab.style.display = 'none';
+      if (messages.length === 0) bubble('mirror', "Hey. I'm you — well, the version of you built from your own prompts. Ask me what I think of your habits.");
+      input.focus();
+    });
+    document.getElementById('chat-close').addEventListener('click', function(){
+      dock.hidden = true; fab.style.display = '';
+    });
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      var text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      messages.push({role:'user', text:text});
+      bubble('user', text);
+      var think = bubble('mirror thinking', '…');
+      fetch('/api/chat', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({messages:messages})})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          think.remove();
+          var reply = d.reply || ('(' + (d.error || 'no reply') + ')');
+          messages.push({role:'mirror', text:reply});
+          bubble('mirror', reply);
+        })
+        .catch(function(err){ think.remove(); bubble('mirror', '(connection lost — is the mirror server still running?)'); });
+    });
+  }
 })();
 </script>
 </body>

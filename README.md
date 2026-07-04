@@ -1,14 +1,21 @@
-# Claude Mirror
+# Mirror
 
 **See who you are through what you asked.**
 
-Spotify Wrapped told you what you listened to. Claude Mirror tells you *who you are*. Run it once and it will use your local Claude Code history if it exists, or prompt you for a Claude export zip if it does not. It analyzes not just what you built but **how you think** — your traits, your archetype, your signature habits, how you've grown — and renders it as a beautiful, shareable card.
+Spotify Wrapped told you what you listened to. Mirror tells you *who you are*. Run it once and it will use your local Claude Code history if it exists, or prompt you for a Claude export zip if it does not. It analyzes not just what you built but **how you think** — your traits, your archetype, your signature habits, how you've grown — and renders it as a beautiful, shareable card.
 
 100% local. Consent-first. One command.
 
+**New in v0.2 — the living Mirror:**
+- 🧠 **The Brain** — an interactive 3D map of your history: projects, tools, traits, habits, and your voice, force-laid-out around you. Drag to spin, click any node.
+- 🪞 **Talk to your Mirror** — a local chat with a twin built from your own prompts. It talks like you and knows your patterns (runs on your own Claude account).
+- 📈 **A real dashboard** — daily usage chart, work/personal/learning mix, and since-last-run deltas so you can watch yourself change month over month.
+- 🔌 **Provider-neutral** — imports ChatGPT data exports too, not just Claude.
+
 ```bash
-npx claude-mirror                      # use local Claude Code history, or get prompted for an export zip
-npx claude-mirror ./claude-export.zip  # skip the prompt and use an export directly
+npx ai-mirror                       # launches your local dashboard (brain + stats + chat)
+npx ai-mirror ./export.zip          # works with Claude AND ChatGPT data exports
+npx ai-mirror --export              # just write the shareable mirror-report.html
 ```
 
 > Not another stats tool with a costume on. The tokens-and-heatmaps stuff is the warm-up. The product is the **mirror**: a real, evidence-backed read on how you collaborate with AI — with quotes.

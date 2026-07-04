@@ -8,6 +8,8 @@ import { resolvePeriod, filterByPeriod } from "./stats/period.js";
 import { sample } from "./persona/sampler.js";
 import { analyzePersona } from "./persona/engine.js";
 import { renderReport } from "./render/template.js";
+import { buildMirrorPersona } from "./persona/mirror.js";
+import { serve } from "./server.js";
 import {
   defaultHistoryPath,
   loadHistory,
@@ -32,7 +34,9 @@ type Args = {
   out?: string;
   model?: string;
   projectsDir?: string; // hidden: for testing against fixtures
-  importPath?: string; // v1.1 claude.ai export
+  importPath?: string; // claude.ai / chatgpt export
+  exportOnly: boolean; // write files only, don't start the dashboard
+  port?: number;
   help: boolean;
   version: boolean;
 };
@@ -43,6 +47,7 @@ function parseArgs(argv: string[]): Args {
     yes: false,
     showSample: false,
     json: false,
+    exportOnly: false,
     help: false,
     version: false,
   };
@@ -58,6 +63,8 @@ function parseArgs(argv: string[]): Args {
       case "--model": a.model = argv[++i]; break;
       case "--projects-dir": a.projectsDir = argv[++i]; break;
       case "--import": a.importPath = argv[++i]; break;
+      case "--export": a.exportOnly = true; break;
+      case "--port": a.port = Number(argv[++i]); break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;
       default:
@@ -70,27 +77,31 @@ function parseArgs(argv: string[]): Args {
   return a;
 }
 
-const HELP = `claude-mirror v${VERSION} — see who you are through what you asked.
+const HELP = `Mirror v${VERSION} — see who you are through what you asked.
 
-Usage: claude-mirror [options] [export.zip | conversations.json]
+Usage: ai-mirror [options] [export.zip | conversations.json]
 
+Runs your local dashboard: the 3D brain of your AI history, your stats,
+your persona — and a chat with your own Mirror. Everything stays local.
+
+  --export            write mirror-report.html + files and exit (no dashboard)
+  --port <n>          dashboard port (default 3737)
   --stats-only        skip the LLM persona pass (no prompt, no network)
   --period <spec>     time window: 2026 | all | 6m  (default: current year)
   --show-sample       print the exact redacted text that would be sent, then exit
   --out <dir>         output directory (default: cwd)
   --json              also write profile.json
   --model <name>      model for persona pass (default: sonnet)
-  --import <zip>      claude.ai export zip or conversations JSON
+  --import <zip>      claude.ai or ChatGPT export (zip / conversations.json)
   --yes, -y           skip the consent prompt (CI / power users)
   --help, -h          this help
   --version, -v       version
 
 For Claude Code users, omit the path and it reads ~/.claude/projects.
-For general Claude users, pass the export file directly, or just run the
-command and it will ask for the export path if no local Claude Code history
-is available.
+For chat users, pass your data export file directly.
 
-100% local. The only network call is the optional persona pass, only after consent.`;
+100% local. The only network calls are the optional persona pass and your
+own chat turns — via your own account, only after consent.`;
 
 function log(msg: string) {
   process.stderr.write(msg + "\n");
@@ -150,10 +161,11 @@ async function main() {
   let skipped = 0;
 
   if (args.importPath) {
-    const { importClaudeAiExport } = await import("./ingest/claudeai-import.js");
+    const { importAnyExport } = await import("./ingest/chatgpt-import.js");
     try {
-      log(`Reading Claude export from ${args.importPath}…`);
-      const imported = await importClaudeAiExport(args.importPath);
+      log(`Reading export from ${args.importPath}…`);
+      const imported = await importAnyExport(args.importPath);
+      log(`Detected ${imported.source} export.`);
       if (imported.events.length === 0) {
         log(`No conversations found in ${args.importPath}.`);
         process.exitCode = 1;
@@ -178,10 +190,11 @@ async function main() {
         return;
       }
 
-      const { importClaudeAiExport } = await import("./ingest/claudeai-import.js");
+      const { importAnyExport } = await import("./ingest/chatgpt-import.js");
       try {
-        log(`Reading Claude export from ${importPath}…`);
-        const imported = await importClaudeAiExport(importPath);
+        log(`Reading export from ${importPath}…`);
+        const imported = await importAnyExport(importPath);
+        log(`Detected ${imported.source} export.`);
         if (imported.events.length === 0) {
           log(`No conversations found in ${importPath}.`);
           process.exitCode = 1;
@@ -271,14 +284,30 @@ async function main() {
   if (args.json) {
     await writeFile(join(outDir, "profile.json"), JSON.stringify(profile, null, 2), "utf8");
   }
+  const personaPath = join(outDir, "mirror-persona.md");
+  await writeFile(personaPath, buildMirrorPersona(profile), "utf8");
 
   const teaser = persona
     ? `You're "${persona.archetype.name}" (${persona.archetype.rarity}).`
     : `${stats.totals.prompts.toLocaleString()} prompts across ${period.label}.`;
   log("");
   log(`  ✔ ${teaser}`);
-  log(`  ✔ Report: ${htmlPath}`);
-  await openFile(htmlPath);
+  log(`  ✔ Shareable report: ${htmlPath}`);
+  log(`  ✔ Mirror persona:   ${personaPath}`);
+
+  if (args.exportOnly) {
+    await openFile(htmlPath);
+    return;
+  }
+
+  // Default: the live dashboard — brain, stats, and chat with your Mirror.
+  await serve(profile, {
+    port: args.port,
+    onReady: (url) => {
+      log(`  ✔ Dashboard: ${url}  (Ctrl+C to stop)`);
+      void openFile(url);
+    },
+  });
 }
 
 main().catch((e) => {

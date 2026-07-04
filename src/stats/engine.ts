@@ -147,6 +147,19 @@ export function computeStats(events: NormalizedEvent[]): StatsProfile {
   for (const [name, count] of toolCount) {
     if (TEST_TOOL_HINTS.some((h) => name.toLowerCase().includes(h))) testRuns += count;
   }
+  const pairCount = new Map<string, number>();
+  for (const t of tools) {
+    if (!t.toolName) continue;
+    const k = `${t.project}	${t.toolName}`;
+    pairCount.set(k, (pairCount.get(k) ?? 0) + 1);
+  }
+  const byProject = [...pairCount.entries()]
+    .map(([k, count]) => {
+      const [project, name] = k.split("	");
+      return { project, name, count };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 40);
 
   // ---- Conversation style ----
   const lengths = promptTexts.map((t) => t.length);
@@ -217,7 +230,7 @@ export function computeStats(events: NormalizedEvent[]): StatsProfile {
     },
     projects: { top: topProjects, switchRate: Number(switchRate.toFixed(2)) },
     models: { split: modelSplit, rideOrDie },
-    tools: { top: topTools, editReadRatio, testRuns },
+    tools: { top: topTools, editReadRatio, testRuns, byProject },
     conversationStyle: {
       medianPromptLength,
       questionRatio,
