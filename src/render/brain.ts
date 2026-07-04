@@ -94,6 +94,18 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
     link("you", `q:${q.phrase}`, 0.7);
   }
 
+  // Models used — part of the toolbelt.
+  for (const m of stats.models.split.slice(0, 3)) {
+    add({
+      id: `model:${m.model}`,
+      label: m.model.replace(/^claude-/, "").replace(/-\d{8}$/, ""),
+      cat: "tool",
+      size: 2.5,
+      detail: `${m.turns} turns with this model${m.model === stats.models.rideOrDie ? " — your ride-or-die." : "."}`,
+    });
+    link("you", `model:${m.model}`, 0.6);
+  }
+
   if (persona) {
     // Traits.
     for (const t of persona.traits) {
@@ -102,10 +114,30 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
         label: t.pole,
         cat: "trait",
         size: 2 + (t.score / 100) * 5,
-        detail: `${t.score}/100 — ${t.evidence}`,
+        detail: `${t.axis} ${t.score}/100. Evidence: ${t.evidence}`,
       });
       link("you", `trait:${t.axis}`, 1.5);
     }
+    // Evidence quotes — the voice, verbatim.
+    persona.evidenceQuotes.slice(0, 3).forEach((q, i) => {
+      const short = q.quote.length > 30 ? q.quote.slice(0, 27) + "…" : q.quote;
+      add({
+        id: `quote:${i}`,
+        label: `“${short}”`,
+        cat: "voice",
+        size: 2.5,
+        detail: `You actually said this. It revealed your ${q.reveals}.`,
+      });
+      link("you", `quote:${i}`, 0.6);
+      const trait = persona.traits.find((t) => q.reveals.toLowerCase().includes(t.axis));
+      if (trait) link(`trait:${trait.axis}`, `quote:${i}`, 1);
+    });
+    // Growth notes — the improvements, attached to habits.
+    persona.improvements.slice(0, 3).forEach((tip, i) => {
+      const short = tip.length > 34 ? tip.slice(0, 31) + "…" : tip;
+      add({ id: `grow:${i}`, label: short, cat: "habit", size: 2.5, detail: `Growth note: ${tip}` });
+      link(persona.signatureHabits[i] !== undefined ? `habit:${i}` : "you", `grow:${i}`, 0.8);
+    });
     // Habits.
     persona.signatureHabits.forEach((h, i) => {
       const short = h.length > 40 ? h.slice(0, 37) + "…" : h;
@@ -125,8 +157,14 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
   return { nodes, links };
 }
 
-/** The hero section markup + the whole 3D engine, inlined. */
-export function brainSection(profile: Profile): string {
+export type BrainOptions = {
+  /** Full-viewport app mode: search, labels toggle, first-visit onboarding. */
+  fullscreen?: boolean;
+};
+
+/** The brain markup + the whole 3D engine, inlined. */
+export function brainSection(profile: Profile, opts: BrainOptions = {}): string {
+  const fullscreen = opts.fullscreen ?? false;
   const graph = buildGraph(profile);
   const legend = (
     [
@@ -143,10 +181,37 @@ export function brainSection(profile: Profile): string {
     )
     .join("");
 
+  const controls = fullscreen
+    ? `<div class="brain-ctrl">
+        <input id="brain-search" placeholder="Search your brain…" autocomplete="off"/>
+        <button id="labels-toggle" class="ctrl-btn" title="Toggle all labels">Aa</button>
+      </div>`
+    : "";
+  const onboarding = fullscreen
+    ? `<div id="onboard" hidden>
+      <div class="ob-card">
+        <div class="ob-step" data-step="0">
+          <div class="ob-icon">🧠</div><h3>This is your brain</h3>
+          <p>Every node is something real from your own history — projects, tools, traits, habits, the phrases you actually use. Drag to spin it. Click anything to read its story.</p>
+        </div>
+        <div class="ob-step" data-step="1" hidden>
+          <div class="ob-icon">🔒</div><h3>Nothing leaves this machine</h3>
+          <p>Your history is read locally, analyzed locally, rendered locally. The only network calls are to your own AI account, and only with your consent. Audit the code — it's open source.</p>
+        </div>
+        <div class="ob-step" data-step="2" hidden>
+          <div class="ob-icon">🪞</div><h3>The more you feed it, the more it's you</h3>
+          <p>Connect ChatGPT and Claude exports today — more sources are coming. Over time your Mirror stops mimicking and starts <i>being</i> a working model of how you think. Talk to it any time with the 🪞 button.</p>
+        </div>
+        <div class="ob-nav"><button id="ob-skip" class="ctrl-btn">skip</button><button id="ob-next" class="btn">Next</button></div>
+      </div>
+    </div>`
+    : "";
+
   return `
-  <section class="brain-hero">
+  <section class="brain-hero${fullscreen ? " brain-full" : ""}">
     <div class="brain-head">
       <div class="kicker">Your brain</div>
+      ${controls}
       <div class="brain-legend">${legend}</div>
     </div>
     <div id="brain-wrap">
@@ -156,8 +221,11 @@ export function brainSection(profile: Profile): string {
         <div id="bp-title"></div>
         <div id="bp-cat"></div>
         <div id="bp-detail"></div>
+        <div id="bp-conn-label">connected to</div>
+        <div id="bp-conn"></div>
       </div>
       <div class="brain-hint">drag to spin · scroll to zoom · click a node</div>
+      ${onboarding}
     </div>
   </section>
   <script>
@@ -279,6 +347,7 @@ export function brainSection(profile: Profile): string {
 
     var panel=document.getElementById('brain-panel');
     var bpT=document.getElementById('bp-title'),bpC=document.getElementById('bp-cat'),bpD=document.getElementById('bp-detail');
+    var bpConn=document.getElementById('bp-conn');
     document.getElementById('bp-close').addEventListener('click',function(){select(-1);});
     var CATNAME={you:'You',project:'Project',tool:'Tool',habit:'Habit',trait:'Trait',voice:'Voice'};
     function select(i){
@@ -289,7 +358,42 @@ export function brainSection(profile: Profile): string {
       bpC.textContent=CATNAME[n.cat]||n.cat;
       bpC.style.color=COLORS[n.cat]||accent;
       bpD.textContent=n.detail;
+      // Connections: clickable chips that walk the graph.
+      bpConn.innerHTML='';
+      (neighbors[i]||[]).forEach(function(j){
+        var chip=document.createElement('button');
+        chip.className='conn-chip';
+        chip.textContent=N[j].d.label;
+        chip.style.borderColor=COLORS[N[j].d.cat]||accent;
+        chip.addEventListener('click',function(){select(j);});
+        bpConn.appendChild(chip);
+      });
       panel.hidden=false;
+    }
+
+    // ---- fullscreen extras: search, labels toggle, onboarding ----
+    var allLabels = ${fullscreen ? "N.length < 80" : "false"};
+    var query = '';
+    var searchEl=document.getElementById('brain-search');
+    if(searchEl){
+      searchEl.addEventListener('input',function(){ query=searchEl.value.trim().toLowerCase(); });
+    }
+    var lt=document.getElementById('labels-toggle');
+    if(lt){ lt.addEventListener('click',function(){ allLabels=!allLabels; lt.classList.toggle('on',allLabels); }); if(allLabels) lt.classList.add('on'); }
+    function matches(i){ return query && N[i].d.label.toLowerCase().indexOf(query)>=0; }
+    var ob=document.getElementById('onboard');
+    if(ob && !localStorage.getItem('mirror-onboarded')){
+      ob.hidden=false;
+      var step=0, steps=ob.querySelectorAll('.ob-step');
+      var next=document.getElementById('ob-next');
+      function done(){ ob.hidden=true; localStorage.setItem('mirror-onboarded','1'); }
+      next.addEventListener('click',function(){
+        step++;
+        if(step>=steps.length){ done(); return; }
+        steps.forEach(function(s,i){ s.hidden = i!==step; });
+        if(step===steps.length-1) next.textContent='Enter your brain';
+      });
+      document.getElementById('ob-skip').addEventListener('click',done);
     }
 
     // ---- render loop ----
@@ -323,8 +427,8 @@ export function brainSection(profile: Profile): string {
         var n=N[i];
         var col=COLORS[n.d.cat]||accent;
         var r=Math.max(2.5, n.d.size*2.1*n.ps);
-        var dim = (hover>=0 || selected>=0);
-        var isLit = i===hover || i===selected ||
+        var dim = (hover>=0 || selected>=0 || !!query);
+        var isLit = i===hover || i===selected || matches(i) ||
           (hover>=0 && (neighbors[hover]||[]).indexOf(i)>=0) ||
           (selected>=0 && (neighbors[selected]||[]).indexOf(i)>=0);
         ctx.globalAlpha = dim && !isLit ? 0.25 : 1;
@@ -337,7 +441,7 @@ export function brainSection(profile: Profile): string {
         ctx.fillStyle=col;
         ctx.beginPath();ctx.arc(n.px,n.py,r,0,7);ctx.fill();
         // labels: center + big nodes always; others when lit/near
-        var showLabel = n.d.cat==='you' || n.d.size>=4.2 || isLit;
+        var showLabel = allLabels || n.d.cat==='you' || n.d.size>=4.2 || isLit;
         if(showLabel && n.ps>0.55){
           ctx.font=(n.d.cat==='you'?'700 ':'')+(Math.max(10,11*n.ps))+'px Inter,system-ui,sans-serif';
           ctx.fillStyle= isLit||n.d.cat==='you' ? '#f4f4f8' : 'rgba(220,220,235,0.75)';
@@ -367,4 +471,21 @@ export const BRAIN_CSS = `
 #bp-title{font-weight:800;font-size:18px;padding-right:20px}
 #bp-cat{font-size:11px;text-transform:uppercase;letter-spacing:.15em;margin:4px 0 8px}
 #bp-detail{color:#c9c9d6;font-size:14px;line-height:1.5}
+#bp-conn-label{margin-top:14px;font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:#6a6a7a}
+#bp-conn{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;max-height:120px;overflow-y:auto}
+.conn-chip{background:none;border:1px solid;border-radius:999px;color:#c9c9d6;font-size:11px;padding:3px 10px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conn-chip:hover{color:#fff}
+.brain-full{min-height:calc(100vh - 52px);padding-top:2vh}
+.brain-full #brain-wrap{min-height:80vh}
+.brain-ctrl{display:flex;gap:8px;align-items:center}
+#brain-search{background:#15151f;border:1px solid #ffffff1e;border-radius:10px;color:var(--fg);padding:8px 14px;font-size:13px;width:min(240px,50vw);outline:none}
+#brain-search:focus{border-color:var(--accent)}
+.ctrl-btn{background:#15151f;border:1px solid #ffffff1e;border-radius:10px;color:var(--muted);padding:8px 12px;font-size:13px;cursor:pointer}
+.ctrl-btn.on{color:var(--accent);border-color:var(--accent)}
+#onboard{position:absolute;inset:0;background:#0d0d12e6;backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;border-radius:20px;z-index:10}
+.ob-card{max-width:420px;padding:36px;text-align:center}
+.ob-icon{font-size:44px;margin-bottom:12px}
+.ob-card h3{font-size:24px;margin-bottom:10px}
+.ob-card p{color:#c9c9d6;font-size:15px;line-height:1.6}
+.ob-nav{display:flex;gap:10px;justify-content:center;margin-top:26px}
 `;

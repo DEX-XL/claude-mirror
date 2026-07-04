@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { Profile } from "./types.js";
 import { renderReport } from "./render/template.js";
+import { brainPage, dashboardPage, connectPage } from "./render/app.js";
 import { buildMirrorPersona } from "./persona/mirror.js";
 import { detectBackend, runModel, type LlmBackend } from "./persona/runner.js";
 
@@ -14,6 +15,8 @@ export type ServeOptions = {
   log?: (line: string) => void;
   /** Re-ingest and recompute the profile (persona preserved by the caller). */
   rebuild?: () => Promise<Profile>;
+  /** Which data sources fed this profile (drives the Connect page). */
+  sources?: { localDetected: boolean; imported: string[] };
 };
 
 type ChatMsg = { role: "user" | "mirror"; text: string };
@@ -27,10 +30,19 @@ function transcript(messages: ChatMsg[]): string {
 export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<void> {
   const port = opts.port ?? 3737;
   const log = opts.log ?? (() => {});
+  const sources = opts.sources ?? { localDetected: true, imported: [] };
   let persona = buildMirrorPersona(profile);
   let backend: LlmBackend = await detectBackend();
-  let html = renderReport(profile, { live: true });
   let current = profile;
+  let pages = renderPages(current);
+  function renderPages(p: Profile) {
+    return {
+      "/": brainPage(p),
+      "/dashboard": dashboardPage(p),
+      "/story": renderReport(p, { live: true }),
+      "/connect": connectPage(p, sources),
+    } as Record<string, string>;
+  }
 
   const server = createServer(async (req, res) => {
     const cors = {
@@ -42,9 +54,11 @@ export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<
       res.writeHead(204, cors);
       return res.end();
     }
-    if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+    const path = (req.url ?? "/").split("?")[0].replace(/\/$/, "") || "/";
+    const page = path === "/index.html" ? pages["/"] : pages[path];
+    if (req.method === "GET" && page) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      return res.end(html);
+      return res.end(page);
     }
     if (req.method === "GET" && req.url === "/api/health") {
       res.writeHead(200, { "content-type": "application/json", ...cors });
@@ -62,7 +76,7 @@ export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<
       try {
         current = await opts.rebuild();
         persona = buildMirrorPersona(current);
-        html = renderReport(current, { live: true });
+        pages = renderPages(current);
         log("refreshed data");
         res.writeHead(200, { "content-type": "application/json", ...cors });
         return res.end(JSON.stringify({ ok: true }));

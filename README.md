@@ -6,7 +6,13 @@ Spotify Wrapped told you what you listened to. Mirror tells you *who you are*. R
 
 100% local. Consent-first. One command.
 
-**New in v0.3 — the habit engine:**
+**New in v0.4 — the app:**
+- 🧠 **The Brain is the home page** — a dense, searchable 3D map: every project, tool, trait, habit, model, and quote from your history, each node with its own story and clickable connections.
+- 🗺️ **Four rooms**: `/` the brain · `/dashboard` every rhythm interactive · `/story` your narrative · `/connect` data sources.
+- 🔀 **Merge your sources** — `--import` is repeatable: local Claude Code + ChatGPT + claude.ai exports combine into one brain.
+- 🚪 **First-visit walkthrough** — what you'll see, and the promise: nothing leaves this machine.
+
+**v0.3 — the habit engine:**
 - 🔥 **Streaks & goals** — current streak, a weekly active-days goal ring (set yours: `--goal 4`), and a GitHub-style activity heatmap.
 - 📊 **Week in review** — this week vs last, right in the dashboard.
 - 📉 **Trait journey** — sparklines of your five traits across every run; watch yourself change.

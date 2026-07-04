@@ -26,7 +26,7 @@ import type { Profile } from "./types.js";
 // constants; the warning would just be noise in a user-facing CLI.
 process.noDeprecation = true;
 
-const VERSION = "0.1.0";
+const VERSION = "0.4.0";
 
 type Args = {
   statsOnly: boolean;
@@ -37,7 +37,7 @@ type Args = {
   out?: string;
   model?: string;
   projectsDir?: string; // hidden: for testing against fixtures
-  importPath?: string; // claude.ai / chatgpt export
+  importPaths: string[]; // claude.ai / chatgpt exports (repeatable, merged)
   exportOnly: boolean; // write files only, don't start the dashboard
   port?: number;
   goal?: number; // weekly active-days goal (persisted)
@@ -52,6 +52,7 @@ function parseArgs(argv: string[]): Args {
     showSample: false,
     json: false,
     exportOnly: false,
+    importPaths: [],
     help: false,
     version: false,
   };
@@ -66,7 +67,7 @@ function parseArgs(argv: string[]): Args {
       case "--out": a.out = argv[++i]; break;
       case "--model": a.model = argv[++i]; break;
       case "--projects-dir": a.projectsDir = argv[++i]; break;
-      case "--import": a.importPath = argv[++i]; break;
+      case "--import": a.importPaths.push(argv[++i]); break;
       case "--export": a.exportOnly = true; break;
       case "--port": a.port = Number(argv[++i]); break;
       case "--goal": a.goal = Number(argv[++i]); break;
@@ -76,7 +77,7 @@ function parseArgs(argv: string[]): Args {
         if (t.startsWith("--period=")) a.period = t.slice(9);
         else if (t.startsWith("--out=")) a.out = t.slice(6);
         else if (t.startsWith("--model=")) a.model = t.slice(8);
-        else if (!t.startsWith("-") && !a.importPath) a.importPath = t;
+        else if (!t.startsWith("-")) a.importPaths.push(t);
     }
   }
   return a;
@@ -98,7 +99,7 @@ your persona — and a chat with your own Mirror. Everything stays local.
   --out <dir>         output directory (default: cwd)
   --json              also write profile.json
   --model <name>      model for persona pass (default: sonnet)
-  --import <zip>      claude.ai or ChatGPT export (zip / conversations.json)
+  --import <zip>      Claude or ChatGPT export — repeatable, merged with local
   --yes, -y           skip the consent prompt (CI / power users)
   --help, -h          this help
   --version, -v       version
@@ -162,69 +163,66 @@ async function main() {
   const projectsDir = args.projectsDir ?? defaultProjectsDir();
   const nowMs = Date.now();
 
+  // ---- Load & merge every source: local Claude Code + any exports ----
   let events: Awaited<ReturnType<typeof ingest>>["events"] = [];
   let parsed = 0;
   let skipped = 0;
-  let sourceImportPath: string | undefined; // remembered for live refresh
+  let localDetected = false;
+  const importedSources: string[] = [];
+  const importPaths = [...args.importPaths]; // may grow via interactive ask
 
-  if (args.importPath) {
-    sourceImportPath = args.importPath;
+  async function loadAll() {
     const { importAnyExport } = await import("./ingest/chatgpt-import.js");
-    try {
-      log(`Reading export from ${args.importPath}…`);
-      const imported = await importAnyExport(args.importPath);
-      log(`Detected ${imported.source} export.`);
-      if (imported.events.length === 0) {
-        log(`No conversations found in ${args.importPath}.`);
-        process.exitCode = 1;
-        return;
-      }
-      events = imported.events;
-      parsed = imported.parsed;
-      skipped = imported.skipped;
-    } catch (error) {
-      log(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-      return;
+    const all: typeof events = [];
+    let pc = 0;
+    let sk = 0;
+    const r = await ingest(projectsDir);
+    localDetected = r.files > 0;
+    if (localDetected) {
+      log(
+        `Local history: ${r.parsed.toLocaleString()} events (${r.malformed} malformed lines skipped) across ${r.files} files.`
+      );
+      all.push(...r.events);
+      pc += r.parsed;
+      sk += r.skipped;
     }
-  } else {
-    log("Reading your Claude history…");
-    const ingestResult = await ingest(projectsDir);
-    if (ingestResult.files === 0) {
+    for (const ip of importPaths) {
+      log(`Reading export from ${ip}…`);
+      const imp = await importAnyExport(ip);
+      log(`  Detected ${imp.source} export: ${imp.parsed.toLocaleString()} events.`);
+      if (!importedSources.includes(imp.source)) importedSources.push(imp.source);
+      all.push(...imp.events);
+      pc += imp.parsed;
+      sk += imp.skipped;
+    }
+    all.sort((a, b) => a.ts - b.ts);
+    return { all, pc, sk };
+  }
+
+  try {
+    let loaded = await loadAll();
+    if (loaded.all.length === 0) {
       const importPath = await askForImportPath();
       if (!importPath) {
-        log("No export provided. Exiting.");
+        log("No history found and no export provided. Exiting.");
         process.exitCode = 1;
         return;
       }
-
-      sourceImportPath = importPath;
-      const { importAnyExport } = await import("./ingest/chatgpt-import.js");
-      try {
-        log(`Reading export from ${importPath}…`);
-        const imported = await importAnyExport(importPath);
-        log(`Detected ${imported.source} export.`);
-        if (imported.events.length === 0) {
-          log(`No conversations found in ${importPath}.`);
-          process.exitCode = 1;
-          return;
-        }
-        events = imported.events;
-        parsed = imported.parsed;
-        skipped = imported.skipped;
-      } catch (error) {
-        log(error instanceof Error ? error.message : String(error));
+      importPaths.push(importPath);
+      loaded = await loadAll();
+      if (loaded.all.length === 0) {
+        log("No conversations found. Exiting.");
         process.exitCode = 1;
         return;
       }
-    } else {
-      log(
-        `Parsed ${ingestResult.parsed.toLocaleString()} events, skipped ${ingestResult.skipped.toLocaleString()} unrecognized (${ingestResult.malformed} malformed lines) across ${ingestResult.files} files.`
-      );
-      events = ingestResult.events;
-      parsed = ingestResult.parsed;
-      skipped = ingestResult.skipped;
     }
+    events = loaded.all;
+    parsed = loaded.pc;
+    skipped = loaded.sk;
+  } catch (error) {
+    log(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+    return;
   }
 
   const period = resolvePeriod(args.period, nowMs);
@@ -326,39 +324,26 @@ async function main() {
     return;
   }
 
-  // Live refresh: re-read the same source, recompute stats, keep the persona.
+  // Live refresh: re-read every source, recompute stats, keep the persona.
   const rebuild = async (): Promise<Profile> => {
     const now = Date.now();
-    let ev = events;
-    let p = parsed;
-    let sk = skipped;
-    if (sourceImportPath) {
-      const { importAnyExport } = await import("./ingest/chatgpt-import.js");
-      const imp = await importAnyExport(sourceImportPath);
-      ev = imp.events;
-      p = imp.parsed;
-      sk = imp.skipped;
-    } else {
-      const r = await ingest(projectsDir);
-      ev = r.events;
-      p = r.parsed;
-      sk = r.skipped;
-    }
+    const loaded = await loadAll();
     const per = resolvePeriod(args.period, now);
-    const sc = filterByPeriod(ev, per);
+    const sc = filterByPeriod(loaded.all, per);
     return {
       ...profile,
-      meta: { ...profile.meta, eventsParsed: p, eventsSkipped: sk },
+      meta: { ...profile.meta, eventsParsed: loaded.pc, eventsSkipped: loaded.sk },
       stats: computeStats(sc, now),
     };
   };
 
-  // Default: the live dashboard — brain, stats, chat, and fresh data.
+  // Default: the live app — brain, dashboard, story, connect, chat.
   await serve(profile, {
     port: args.port,
     rebuild,
+    sources: { localDetected, imported: importedSources },
     onReady: (url) => {
-      log(`  ✔ Dashboard: ${url}  (Ctrl+C to stop)`);
+      log(`  ✔ Your brain: ${url}  (Ctrl+C to stop)`);
       void openFile(url);
     },
   });

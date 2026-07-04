@@ -6,7 +6,10 @@ export default defineConfig({
   target: "node18",
   clean: true,
   minify: false,
-  // Bundle everything into a single-file CLI. Keep the shebang.
-  banner: { js: "#!/usr/bin/env node" },
+  // Bundle everything into a single-file CLI. Keep the shebang, and shim
+  // require() for CJS deps (adm-zip) bundled into the ESM output.
+  banner: {
+    js: '#!/usr/bin/env node\nimport { createRequire as __cr } from "node:module"; const require = __cr(import.meta.url);',
+  },
   noExternal: [/.*/],
 });

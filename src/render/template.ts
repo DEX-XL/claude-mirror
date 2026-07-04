@@ -28,7 +28,7 @@ const MIX_COLORS: Record<string, string> = {
 };
 
 // ---- Interactive daily bar chart (inline SVG + JS tooltip) ----
-function dailyChart(daily: { date: string; prompts: number }[]): string {
+export function dailyChart(daily: { date: string; prompts: number }[]): string {
   if (daily.length === 0) return "";
   const shown = daily.length > 120 ? daily.slice(-120) : daily;
   const W = 900;
@@ -58,7 +58,7 @@ function dailyChart(daily: { date: string; prompts: number }[]): string {
 }
 
 // ---- Task mix donut (SVG arcs with hover) ----
-function donut(mix: { label: string; pct: number }[]): string {
+export function donut(mix: { label: string; pct: number }[]): string {
   const R = 80;
   const C = 2 * Math.PI * R;
   let offset = 0;
@@ -109,7 +109,7 @@ function traitBars(traits: TraitScore[]): string {
 }
 
 // ---- Habit engine: this-week review, goal ring, calendar heatmap ----
-function habitSection(profile: Profile): string {
+export function habitSection(profile: Profile): string {
   const { stats } = profile;
   const goal = profile.weeklyGoal ?? 5;
   const wk = stats.weekly;
@@ -170,7 +170,7 @@ function habitSection(profile: Profile): string {
 }
 
 // ---- Trait journey: sparklines across run history ----
-function traitJourney(profile: Profile): string {
+export function traitJourney(profile: Profile): string {
   const runs = (profile.history ?? []).filter((s) => s.traits && s.traits.length === 5);
   if (runs.length < 2) return "";
   const axes = ["curiosity", "precision", "persistence", "trust", "expression"] as const;
@@ -236,6 +236,220 @@ function deltaSection(profile: Profile): string {
     <div class="deltas">${rows.join("")}</div>
     <p class="muted small">Run <code>npx ai-mirror</code> monthly to track your progress.</p>
   </section>`;
+}
+
+export const CHART_JS = `  // Daily chart tooltip
+  var chart = document.getElementById('daily-chart');
+  var tip = document.getElementById('chart-tip');
+  if (chart && tip) {
+    chart.addEventListener('mousemove', function(e){
+      var t = e.target;
+      if (t && t.classList && t.classList.contains('dbar')) {
+        tip.hidden = false;
+        tip.textContent = t.getAttribute('data-date') + ' · ' + t.getAttribute('data-n') + ' prompts';
+        var wrap = chart.parentElement.getBoundingClientRect();
+        tip.style.left = Math.min(e.clientX - wrap.left + 12, wrap.width - 160) + 'px';
+        tip.style.top = (e.clientY - wrap.top - 34) + 'px';
+      } else { tip.hidden = true; }
+    });
+    chart.addEventListener('mouseleave', function(){ tip.hidden = true; });
+  }
+
+  // Donut hover → legend emphasis via title tooltips (native)
+  document.querySelectorAll('.seg').forEach(function(s){
+    var t = document.createElementNS('http://www.w3.org/2000/svg','title');
+    t.textContent = s.getAttribute('data-label') + ': ' + s.getAttribute('data-pct') + '%';
+    s.appendChild(t);
+  });
+
+`;
+
+export const LIVE_JS = `  // ---- Live refresh (dashboard only): manual chip + every 10 min ----
+  var chip = document.getElementById('refresh-chip');
+  function refreshData(){
+    if (chip) chip.textContent = '↻ refreshing…';
+    fetch('/api/refresh', {method:'POST'})
+      .then(function(r){ if(r.ok) location.reload(); else if(chip) chip.textContent='↻ refresh failed'; })
+      .catch(function(){ if(chip) chip.textContent='↻ server gone'; });
+  }
+  if (chip) {
+    chip.addEventListener('click', refreshData);
+    setInterval(refreshData, 10*60*1000);
+  }
+
+  // ---- Mirror chat (live dashboard only) ----
+  var fab = document.getElementById('chat-fab');
+  if (fab) {
+    var dock = document.getElementById('chat-dock');
+    var logEl = document.getElementById('chat-log');
+    var form = document.getElementById('chat-form');
+    var input = document.getElementById('chat-in');
+    var messages = [];
+    function bubble(role, text){
+      var d = document.createElement('div');
+      d.className = 'msg ' + role;
+      d.textContent = text;
+      logEl.appendChild(d);
+      logEl.scrollTop = logEl.scrollHeight;
+      return d;
+    }
+    fab.addEventListener('click', function(){
+      dock.hidden = false; fab.style.display = 'none';
+      if (messages.length === 0) bubble('mirror', "Hey. I'm you — well, the version of you built from your own prompts. Ask me what I think of your habits.");
+      input.focus();
+    });
+    document.getElementById('chat-close').addEventListener('click', function(){
+      dock.hidden = true; fab.style.display = '';
+    });
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      var text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      messages.push({role:'user', text:text});
+      bubble('user', text);
+      var think = bubble('mirror thinking', '…');
+      fetch('/api/chat', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({messages:messages})})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          think.remove();
+          var reply = d.reply || ('(' + (d.error || 'no reply') + ')');
+          messages.push({role:'mirror', text:reply});
+          bubble('mirror', reply);
+        })
+        .catch(function(err){ think.remove(); bubble('mirror', '(connection lost — is the mirror server still running?)'); });
+    });
+  }
+`;
+
+export function navBar(active: string): string {
+  const links: [string, string, string][] = [
+    ["brain", "/", "🧠 Brain"],
+    ["dashboard", "/dashboard", "📊 Dashboard"],
+    ["story", "/story", "📖 Story"],
+    ["connect", "/connect", "🔌 Connect"],
+  ];
+  return `<nav id="topnav"><span class="nav-brand">🪞 Mirror</span>${links
+    .map(([k, href, label]) => `<a href="${href}" class="${k === active ? "active" : ""}">${label}</a>`)
+    .join("")}</nav>`;
+}
+
+export function cssFor(accent: string): string {
+  return `
+:root{--accent:${accent};--bg:#0d0d12;--fg:#f4f4f8;--muted:#9a9aab}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+.snap{position:relative;min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:7vh 6vw}
+.kicker{text-transform:uppercase;letter-spacing:.25em;font-size:12px;color:var(--muted);margin-bottom:22px}
+h2{font-size:clamp(24px,4vw,38px);letter-spacing:-.02em;margin-bottom:8px}
+.muted{color:var(--muted)} .small{font-size:13px;margin-top:14px}
+/* dashboard open */
+.dash-nums{display:flex;gap:clamp(20px,6vw,70px);flex-wrap:wrap;justify-content:center;margin-bottom:34px}
+.dash-num b{display:block;font-size:clamp(34px,7vw,64px);font-weight:800;letter-spacing:-.03em;color:var(--accent)}
+.dash-num span{color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.12em}
+.chart-wrap{width:min(92vw,900px);position:relative}
+#daily-chart{width:100%;height:220px;display:block}
+.dbar{cursor:pointer;transition:opacity .15s} .dbar:hover{opacity:1;filter:brightness(1.4)}
+.chart-x{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
+.tip-float{position:absolute;pointer-events:none;background:#1c1c28;border:1px solid #ffffff22;border-radius:8px;padding:6px 10px;font-size:13px;white-space:nowrap;z-index:5}
+/* donut */
+.donut-row{display:flex;gap:40px;align-items:center;flex-wrap:wrap;justify-content:center}
+.seg{cursor:pointer;transition:stroke-width .15s} .seg:hover{stroke-width:32}
+.legend{display:grid;gap:10px;text-align:left}
+.leg{display:flex;align-items:center;gap:10px;font-size:16px}
+.leg b{color:var(--fg)} .dot{width:12px;height:12px;border-radius:50%;display:inline-block}
+/* traits */
+.shape-row{display:flex;gap:40px;align-items:center;flex-wrap:wrap;justify-content:center}
+.radar-box{flex:none}
+.tbars{display:grid;gap:18px;width:min(90vw,420px);text-align:left}
+.tbar-labels{display:flex;justify-content:space-between;font-size:14px;color:var(--muted)}
+.tbar-labels .on{color:var(--fg);font-weight:700}
+.tbar-track{position:relative;height:6px;border-radius:3px;background:#ffffff14;margin:6px 0}
+.tbar-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.tbar-ev{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* content sections */
+.summary{max-width:680px;font-size:clamp(19px,2.8vw,26px);color:#e8e8f0;text-align:left;line-height:1.6}
+.projects{display:grid;gap:16px;max-width:640px;width:100%}
+.proj{background:#15151f;border:1px solid #ffffff14;border-radius:16px;padding:20px 24px;text-align:left}
+.proj-label{font-weight:800;font-size:18px;color:var(--accent)}
+.proj-detail{color:var(--muted);font-size:15px;margin-top:6px}
+.tips{display:grid;gap:16px;max-width:640px;width:100%;margin-top:20px}
+.tip{display:flex;gap:16px;align-items:flex-start;background:#15151f;border:1px solid #ffffff14;border-radius:16px;padding:18px 22px;text-align:left}
+.tip-n{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#0b0b10;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
+.tip p{font-size:16px;color:#e8e8f0}
+.quirks{display:grid;gap:18px;max-width:680px}
+.quirk-line{font-size:clamp(20px,3.6vw,34px);font-weight:700}
+.quirk-line b{color:var(--accent)}
+.rhythm-sub{margin-top:16px;color:var(--muted);font-size:17px}
+/* deltas */
+.deltas{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:680px;margin-top:14px}
+.delta{background:#15151f;border:1px solid #ffffff14;border-radius:14px;padding:14px 20px;display:flex;gap:10px;align-items:baseline}
+.delta span{color:var(--muted);font-size:14px} .delta b{font-size:20px}
+.delta .up{color:#4cffb8} .delta .down{color:#ff5c7c} .delta.wide{width:100%;justify-content:center}
+/* card */
+.share-card{position:relative;width:360px;max-width:90vw;border-radius:24px;padding:34px 28px;background:linear-gradient(160deg,#15151f,#0e0e14);border:1px solid #ffffff14;overflow:hidden}
+.card-glow{position:absolute;inset:-40% 20% auto;height:60%;background:radial-gradient(closest-side,var(--accent),transparent);opacity:.35;filter:blur(20px)}
+.card-icon{font-size:56px;position:relative}
+.card-name{font-size:26px;font-weight:800;margin-top:8px;position:relative}
+.card-rarity{color:var(--accent);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:4px}
+.card-desc{color:var(--muted);font-size:14px;margin-top:12px;position:relative}
+.card-radar{margin:14px auto 6px;width:180px;height:180px}
+.card-poles{display:flex;gap:8px;justify-content:center;margin-top:6px}
+.pole-chip{border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600}
+.card-quirk{margin-top:14px;font-size:14px;color:#dcdce6}
+.card-watermark{margin-top:18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#7a7a8a}
+.card-actions{display:flex;gap:12px;margin-top:26px;flex-wrap:wrap;justify-content:center}
+.btn{background:var(--accent);color:#0b0b10;border:none;border-radius:12px;padding:12px 20px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+.btn-ghost{background:transparent;color:var(--fg);border:1px solid #ffffff2a}
+.evidence-list{display:grid;gap:22px;max-width:680px}
+.evidence{border-left:3px solid var(--accent);padding:8px 0 8px 20px;text-align:left}
+.evidence p{font-size:clamp(19px,3vw,27px);font-weight:600}
+.evidence cite{color:var(--muted);font-style:normal;font-size:14px}
+.roast{font-size:clamp(24px,4.5vw,42px);font-weight:800;max-width:760px;letter-spacing:-.02em}
+.growth{max-width:680px;font-size:clamp(18px,2.6vw,23px);color:#dcdce6}
+.habits{display:grid;gap:10px;margin-top:26px}
+.habit{color:var(--muted);font-size:16px;max-width:640px}
+.outro .cmd{font-family:ui-monospace,monospace;background:#15151f;border:1px solid #ffffff1a;border-radius:12px;padding:14px 20px;font-size:18px;margin:20px 0}
+.big{font-size:clamp(26px,5vw,54px);font-weight:800;letter-spacing:-.02em}
+footer{color:var(--muted);font-size:13px;padding:30px;text-align:center}
+code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;border-radius:6px}
+${BRAIN_CSS}
+/* habit engine */
+.habit-row{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-bottom:30px}
+.habit-card{background:#15151f;border:1px solid #ffffff14;border-radius:18px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:160px}
+.hc-big{font-size:44px;font-weight:800;color:var(--accent);line-height:1.1}
+.hc-label{color:var(--muted);font-size:13px;margin-top:6px}
+.hc-label .up{color:#4cffb8}.hc-label .down{color:#ff5c7c}
+.heatmap-wrap{max-width:92vw;overflow-x:auto;padding:8px;background:#15151f;border:1px solid #ffffff14;border-radius:16px}
+.tj{display:grid;gap:14px;margin-top:16px}
+.tj-row{display:flex;align-items:center;gap:14px}
+.tj-axis{width:92px;text-align:right;color:var(--muted);font-size:13px;text-transform:capitalize}
+.tj-val{font-size:16px;color:var(--fg);width:30px;text-align:right}
+.tj-delta{font-size:13px;width:36px;text-align:left}
+.tj-delta.up{color:#4cffb8}.tj-delta.down{color:#ff5c7c}
+#refresh-chip{position:fixed;top:58px;right:14px;z-index:49;background:#15151fdd;border:1px solid #ffffff1e;border-radius:999px;padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;backdrop-filter:blur(6px)}
+#refresh-chip:hover{color:var(--fg);border-color:var(--accent)}
+/* chat dock */
+#chat-fab{position:fixed;bottom:22px;right:22px;z-index:50;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0b0b10;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 24px #0009}
+#chat-dock{position:fixed;bottom:22px;right:22px;z-index:51;width:min(380px,92vw);height:min(540px,80vh);background:#12121a;border:1px solid #ffffff1e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px #000c}
+#chat-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #ffffff12}
+#chat-head .t{font-weight:800} #chat-head .s{color:var(--muted);font-size:12px}
+#chat-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
+#chat-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:82%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.45;text-align:left;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:var(--accent);color:#0b0b10;border-bottom-right-radius:4px}
+.msg.mirror{align-self:flex-start;background:#1e1e2a;border-bottom-left-radius:4px}
+.msg.thinking{color:var(--muted);font-style:italic}
+#chat-form{display:flex;gap:8px;padding:12px;border-top:1px solid #ffffff12}
+#chat-in{flex:1;background:#1a1a24;border:1px solid #ffffff1a;border-radius:10px;color:var(--fg);padding:10px 12px;font-size:14px;outline:none}
+#chat-send{background:var(--accent);border:none;border-radius:10px;color:#0b0b10;font-weight:800;padding:0 16px;cursor:pointer}
+#topnav{position:sticky;top:0;z-index:60;display:flex;gap:6px;align-items:center;padding:10px 18px;background:#0d0d12e8;backdrop-filter:blur(10px);border-bottom:1px solid #ffffff10}
+#topnav a{color:var(--muted);text-decoration:none;font-size:14px;padding:7px 14px;border-radius:10px}
+#topnav a:hover{color:var(--fg)}
+#topnav a.active{color:var(--fg);background:#ffffff12}
+.nav-brand{font-weight:800;margin-right:14px;font-size:15px}
+`;
 }
 
 export function renderReport(profile: Profile, opts: { live?: boolean } = {}): string {
@@ -383,119 +597,11 @@ export function renderReport(profile: Profile, opts: { live?: boolean } = {}): s
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Mirror${persona ? " — " + esc(persona.archetype.name) : ""}</title>
-<style>
-:root{--accent:${accent};--bg:#0d0d12;--fg:#f4f4f8;--muted:#9a9aab}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
-.snap{position:relative;min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:7vh 6vw}
-.kicker{text-transform:uppercase;letter-spacing:.25em;font-size:12px;color:var(--muted);margin-bottom:22px}
-h2{font-size:clamp(24px,4vw,38px);letter-spacing:-.02em;margin-bottom:8px}
-.muted{color:var(--muted)} .small{font-size:13px;margin-top:14px}
-/* dashboard open */
-.dash-nums{display:flex;gap:clamp(20px,6vw,70px);flex-wrap:wrap;justify-content:center;margin-bottom:34px}
-.dash-num b{display:block;font-size:clamp(34px,7vw,64px);font-weight:800;letter-spacing:-.03em;color:var(--accent)}
-.dash-num span{color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.12em}
-.chart-wrap{width:min(92vw,900px);position:relative}
-#daily-chart{width:100%;height:220px;display:block}
-.dbar{cursor:pointer;transition:opacity .15s} .dbar:hover{opacity:1;filter:brightness(1.4)}
-.chart-x{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:6px}
-.tip-float{position:absolute;pointer-events:none;background:#1c1c28;border:1px solid #ffffff22;border-radius:8px;padding:6px 10px;font-size:13px;white-space:nowrap;z-index:5}
-/* donut */
-.donut-row{display:flex;gap:40px;align-items:center;flex-wrap:wrap;justify-content:center}
-.seg{cursor:pointer;transition:stroke-width .15s} .seg:hover{stroke-width:32}
-.legend{display:grid;gap:10px;text-align:left}
-.leg{display:flex;align-items:center;gap:10px;font-size:16px}
-.leg b{color:var(--fg)} .dot{width:12px;height:12px;border-radius:50%;display:inline-block}
-/* traits */
-.shape-row{display:flex;gap:40px;align-items:center;flex-wrap:wrap;justify-content:center}
-.radar-box{flex:none}
-.tbars{display:grid;gap:18px;width:min(90vw,420px);text-align:left}
-.tbar-labels{display:flex;justify-content:space-between;font-size:14px;color:var(--muted)}
-.tbar-labels .on{color:var(--fg);font-weight:700}
-.tbar-track{position:relative;height:6px;border-radius:3px;background:#ffffff14;margin:6px 0}
-.tbar-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
-.tbar-ev{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-/* content sections */
-.summary{max-width:680px;font-size:clamp(19px,2.8vw,26px);color:#e8e8f0;text-align:left;line-height:1.6}
-.projects{display:grid;gap:16px;max-width:640px;width:100%}
-.proj{background:#15151f;border:1px solid #ffffff14;border-radius:16px;padding:20px 24px;text-align:left}
-.proj-label{font-weight:800;font-size:18px;color:var(--accent)}
-.proj-detail{color:var(--muted);font-size:15px;margin-top:6px}
-.tips{display:grid;gap:16px;max-width:640px;width:100%;margin-top:20px}
-.tip{display:flex;gap:16px;align-items:flex-start;background:#15151f;border:1px solid #ffffff14;border-radius:16px;padding:18px 22px;text-align:left}
-.tip-n{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#0b0b10;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px}
-.tip p{font-size:16px;color:#e8e8f0}
-.quirks{display:grid;gap:18px;max-width:680px}
-.quirk-line{font-size:clamp(20px,3.6vw,34px);font-weight:700}
-.quirk-line b{color:var(--accent)}
-.rhythm-sub{margin-top:16px;color:var(--muted);font-size:17px}
-/* deltas */
-.deltas{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:680px;margin-top:14px}
-.delta{background:#15151f;border:1px solid #ffffff14;border-radius:14px;padding:14px 20px;display:flex;gap:10px;align-items:baseline}
-.delta span{color:var(--muted);font-size:14px} .delta b{font-size:20px}
-.delta .up{color:#4cffb8} .delta .down{color:#ff5c7c} .delta.wide{width:100%;justify-content:center}
-/* card */
-.share-card{position:relative;width:360px;max-width:90vw;border-radius:24px;padding:34px 28px;background:linear-gradient(160deg,#15151f,#0e0e14);border:1px solid #ffffff14;overflow:hidden}
-.card-glow{position:absolute;inset:-40% 20% auto;height:60%;background:radial-gradient(closest-side,var(--accent),transparent);opacity:.35;filter:blur(20px)}
-.card-icon{font-size:56px;position:relative}
-.card-name{font-size:26px;font-weight:800;margin-top:8px;position:relative}
-.card-rarity{color:var(--accent);font-size:13px;letter-spacing:.08em;text-transform:uppercase;margin-top:4px}
-.card-desc{color:var(--muted);font-size:14px;margin-top:12px;position:relative}
-.card-radar{margin:14px auto 6px;width:180px;height:180px}
-.card-poles{display:flex;gap:8px;justify-content:center;margin-top:6px}
-.pole-chip{border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:4px 12px;font-size:12px;font-weight:600}
-.card-quirk{margin-top:14px;font-size:14px;color:#dcdce6}
-.card-watermark{margin-top:18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:#7a7a8a}
-.card-actions{display:flex;gap:12px;margin-top:26px;flex-wrap:wrap;justify-content:center}
-.btn{background:var(--accent);color:#0b0b10;border:none;border-radius:12px;padding:12px 20px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
-.btn-ghost{background:transparent;color:var(--fg);border:1px solid #ffffff2a}
-.evidence-list{display:grid;gap:22px;max-width:680px}
-.evidence{border-left:3px solid var(--accent);padding:8px 0 8px 20px;text-align:left}
-.evidence p{font-size:clamp(19px,3vw,27px);font-weight:600}
-.evidence cite{color:var(--muted);font-style:normal;font-size:14px}
-.roast{font-size:clamp(24px,4.5vw,42px);font-weight:800;max-width:760px;letter-spacing:-.02em}
-.growth{max-width:680px;font-size:clamp(18px,2.6vw,23px);color:#dcdce6}
-.habits{display:grid;gap:10px;margin-top:26px}
-.habit{color:var(--muted);font-size:16px;max-width:640px}
-.outro .cmd{font-family:ui-monospace,monospace;background:#15151f;border:1px solid #ffffff1a;border-radius:12px;padding:14px 20px;font-size:18px;margin:20px 0}
-.big{font-size:clamp(26px,5vw,54px);font-weight:800;letter-spacing:-.02em}
-footer{color:var(--muted);font-size:13px;padding:30px;text-align:center}
-code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;border-radius:6px}
-${BRAIN_CSS}
-/* habit engine */
-.habit-row{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-bottom:30px}
-.habit-card{background:#15151f;border:1px solid #ffffff14;border-radius:18px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:160px}
-.hc-big{font-size:44px;font-weight:800;color:var(--accent);line-height:1.1}
-.hc-label{color:var(--muted);font-size:13px;margin-top:6px}
-.hc-label .up{color:#4cffb8}.hc-label .down{color:#ff5c7c}
-.heatmap-wrap{max-width:92vw;overflow-x:auto;padding:8px;background:#15151f;border:1px solid #ffffff14;border-radius:16px}
-.tj{display:grid;gap:14px;margin-top:16px}
-.tj-row{display:flex;align-items:center;gap:14px}
-.tj-axis{width:92px;text-align:right;color:var(--muted);font-size:13px;text-transform:capitalize}
-.tj-val{font-size:16px;color:var(--fg);width:30px;text-align:right}
-.tj-delta{font-size:13px;width:36px;text-align:left}
-.tj-delta.up{color:#4cffb8}.tj-delta.down{color:#ff5c7c}
-#refresh-chip{position:fixed;top:14px;right:14px;z-index:49;background:#15151fdd;border:1px solid #ffffff1e;border-radius:999px;padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;backdrop-filter:blur(6px)}
-#refresh-chip:hover{color:var(--fg);border-color:var(--accent)}
-/* chat dock */
-#chat-fab{position:fixed;bottom:22px;right:22px;z-index:50;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0b0b10;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 24px #0009}
-#chat-dock{position:fixed;bottom:22px;right:22px;z-index:51;width:min(380px,92vw);height:min(540px,80vh);background:#12121a;border:1px solid #ffffff1e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px #000c}
-#chat-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #ffffff12}
-#chat-head .t{font-weight:800} #chat-head .s{color:var(--muted);font-size:12px}
-#chat-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}
-#chat-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
-.msg{max-width:82%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.45;text-align:left;white-space:pre-wrap}
-.msg.user{align-self:flex-end;background:var(--accent);color:#0b0b10;border-bottom-right-radius:4px}
-.msg.mirror{align-self:flex-start;background:#1e1e2a;border-bottom-left-radius:4px}
-.msg.thinking{color:var(--muted);font-style:italic}
-#chat-form{display:flex;gap:8px;padding:12px;border-top:1px solid #ffffff12}
-#chat-in{flex:1;background:#1a1a24;border:1px solid #ffffff1a;border-radius:10px;color:var(--fg);padding:10px 12px;font-size:14px;outline:none}
-#chat-send{background:var(--accent);border:none;border-radius:10px;color:#0b0b10;font-weight:800;padding:0 16px;cursor:pointer}
-</style>
+<style>${cssFor(accent)}</style>
 </head>
 <body>
-  ${brainSection(profile)}
+  ${live ? navBar("story") : ""}
+  ${live ? "" : brainSection(profile)}
 
   <section class="snap">
     <div class="kicker">Mirror · ${esc(meta.period)}</div>
@@ -574,30 +680,7 @@ ${BRAIN_CSS}
   var a = document.getElementById('share-x'); if(a) a.href = xurl;
   var a2 = document.getElementById('share-x-2'); if(a2) a2.href = xurl;
 
-  // Daily chart tooltip
-  var chart = document.getElementById('daily-chart');
-  var tip = document.getElementById('chart-tip');
-  if (chart && tip) {
-    chart.addEventListener('mousemove', function(e){
-      var t = e.target;
-      if (t && t.classList && t.classList.contains('dbar')) {
-        tip.hidden = false;
-        tip.textContent = t.getAttribute('data-date') + ' · ' + t.getAttribute('data-n') + ' prompts';
-        var wrap = chart.parentElement.getBoundingClientRect();
-        tip.style.left = Math.min(e.clientX - wrap.left + 12, wrap.width - 160) + 'px';
-        tip.style.top = (e.clientY - wrap.top - 34) + 'px';
-      } else { tip.hidden = true; }
-    });
-    chart.addEventListener('mouseleave', function(){ tip.hidden = true; });
-  }
-
-  // Donut hover → legend emphasis via title tooltips (native)
-  document.querySelectorAll('.seg').forEach(function(s){
-    var t = document.createElementNS('http://www.w3.org/2000/svg','title');
-    t.textContent = s.getAttribute('data-label') + ': ' + s.getAttribute('data-pct') + '%';
-    s.appendChild(t);
-  });
-
+${CHART_JS}
   // PNG share-card export via SVG foreignObject (no server, no library)
   function exportCard(){
     var node = document.getElementById('share-card');
@@ -640,62 +723,7 @@ ${BRAIN_CSS}
   var dl = document.getElementById('download-card');
   if(dl) dl.addEventListener('click', exportCard);
 
-  // ---- Live refresh (dashboard only): manual chip + every 10 min ----
-  var chip = document.getElementById('refresh-chip');
-  function refreshData(){
-    if (chip) chip.textContent = '↻ refreshing…';
-    fetch('/api/refresh', {method:'POST'})
-      .then(function(r){ if(r.ok) location.reload(); else if(chip) chip.textContent='↻ refresh failed'; })
-      .catch(function(){ if(chip) chip.textContent='↻ server gone'; });
-  }
-  if (chip) {
-    chip.addEventListener('click', refreshData);
-    setInterval(refreshData, 10*60*1000);
-  }
-
-  // ---- Mirror chat (live dashboard only) ----
-  var fab = document.getElementById('chat-fab');
-  if (fab) {
-    var dock = document.getElementById('chat-dock');
-    var logEl = document.getElementById('chat-log');
-    var form = document.getElementById('chat-form');
-    var input = document.getElementById('chat-in');
-    var messages = [];
-    function bubble(role, text){
-      var d = document.createElement('div');
-      d.className = 'msg ' + role;
-      d.textContent = text;
-      logEl.appendChild(d);
-      logEl.scrollTop = logEl.scrollHeight;
-      return d;
-    }
-    fab.addEventListener('click', function(){
-      dock.hidden = false; fab.style.display = 'none';
-      if (messages.length === 0) bubble('mirror', "Hey. I'm you — well, the version of you built from your own prompts. Ask me what I think of your habits.");
-      input.focus();
-    });
-    document.getElementById('chat-close').addEventListener('click', function(){
-      dock.hidden = true; fab.style.display = '';
-    });
-    form.addEventListener('submit', function(e){
-      e.preventDefault();
-      var text = input.value.trim();
-      if (!text) return;
-      input.value = '';
-      messages.push({role:'user', text:text});
-      bubble('user', text);
-      var think = bubble('mirror thinking', '…');
-      fetch('/api/chat', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({messages:messages})})
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-          think.remove();
-          var reply = d.reply || ('(' + (d.error || 'no reply') + ')');
-          messages.push({role:'mirror', text:reply});
-          bubble('mirror', reply);
-        })
-        .catch(function(err){ think.remove(); bubble('mirror', '(connection lost — is the mirror server still running?)'); });
-    });
-  }
+${LIVE_JS}
 })();
 </script>
 </body>
