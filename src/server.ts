@@ -12,6 +12,8 @@ export type ServeOptions = {
   port?: number;
   onReady?: (url: string) => void;
   log?: (line: string) => void;
+  /** Re-ingest and recompute the profile (persona preserved by the caller). */
+  rebuild?: () => Promise<Profile>;
 };
 
 type ChatMsg = { role: "user" | "mirror"; text: string };
@@ -25,9 +27,10 @@ function transcript(messages: ChatMsg[]): string {
 export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<void> {
   const port = opts.port ?? 3737;
   const log = opts.log ?? (() => {});
-  const persona = buildMirrorPersona(profile);
+  let persona = buildMirrorPersona(profile);
   let backend: LlmBackend = await detectBackend();
-  const html = renderReport(profile, { live: true });
+  let html = renderReport(profile, { live: true });
+  let current = profile;
 
   const server = createServer(async (req, res) => {
     const cors = {
@@ -49,7 +52,24 @@ export async function serve(profile: Profile, opts: ServeOptions = {}): Promise<
     }
     if (req.method === "GET" && req.url === "/api/profile") {
       res.writeHead(200, { "content-type": "application/json", ...cors });
-      return res.end(JSON.stringify(profile));
+      return res.end(JSON.stringify(current));
+    }
+    if (req.method === "POST" && req.url === "/api/refresh") {
+      if (!opts.rebuild) {
+        res.writeHead(501, { "content-type": "application/json", ...cors });
+        return res.end(JSON.stringify({ error: "refresh not available" }));
+      }
+      try {
+        current = await opts.rebuild();
+        persona = buildMirrorPersona(current);
+        html = renderReport(current, { live: true });
+        log("refreshed data");
+        res.writeHead(200, { "content-type": "application/json", ...cors });
+        return res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { "content-type": "application/json", ...cors });
+        return res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+      }
     }
     if (req.method === "POST" && req.url === "/api/chat") {
       let body = "";

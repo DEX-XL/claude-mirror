@@ -11,9 +11,12 @@ import { renderReport } from "./render/template.js";
 import { buildMirrorPersona } from "./persona/mirror.js";
 import { serve } from "./server.js";
 import {
+  defaultConfigPath,
   defaultHistoryPath,
+  loadConfig,
   loadHistory,
   previousSnapshot,
+  saveConfig,
   saveSnapshot,
   snapshotFromProfile,
 } from "./history.js";
@@ -37,6 +40,7 @@ type Args = {
   importPath?: string; // claude.ai / chatgpt export
   exportOnly: boolean; // write files only, don't start the dashboard
   port?: number;
+  goal?: number; // weekly active-days goal (persisted)
   help: boolean;
   version: boolean;
 };
@@ -65,6 +69,7 @@ function parseArgs(argv: string[]): Args {
       case "--import": a.importPath = argv[++i]; break;
       case "--export": a.exportOnly = true; break;
       case "--port": a.port = Number(argv[++i]); break;
+      case "--goal": a.goal = Number(argv[++i]); break;
       case "--help": case "-h": a.help = true; break;
       case "--version": case "-v": a.version = true; break;
       default:
@@ -86,6 +91,7 @@ your persona — and a chat with your own Mirror. Everything stays local.
 
   --export            write mirror-report.html + files and exit (no dashboard)
   --port <n>          dashboard port (default 3737)
+  --goal <days>       weekly active-days goal, 1-7 (persisted; default 5)
   --stats-only        skip the LLM persona pass (no prompt, no network)
   --period <spec>     time window: 2026 | all | 6m  (default: current year)
   --show-sample       print the exact redacted text that would be sent, then exit
@@ -159,8 +165,10 @@ async function main() {
   let events: Awaited<ReturnType<typeof ingest>>["events"] = [];
   let parsed = 0;
   let skipped = 0;
+  let sourceImportPath: string | undefined; // remembered for live refresh
 
   if (args.importPath) {
+    sourceImportPath = args.importPath;
     const { importAnyExport } = await import("./ingest/chatgpt-import.js");
     try {
       log(`Reading export from ${args.importPath}…`);
@@ -190,6 +198,7 @@ async function main() {
         return;
       }
 
+      sourceImportPath = importPath;
       const { importAnyExport } = await import("./ingest/chatgpt-import.js");
       try {
         log(`Reading export from ${importPath}…`);
@@ -237,7 +246,20 @@ async function main() {
     return;
   }
 
-  const stats = computeStats(scoped);
+  const stats = computeStats(scoped, nowMs);
+
+  // Habit goal: --goal persists to ~/.claude-mirror/config.json.
+  const configPath = defaultConfigPath();
+  let config = await loadConfig(configPath);
+  if (args.goal !== undefined && Number.isFinite(args.goal) && args.goal >= 1 && args.goal <= 7) {
+    config = { ...config, weeklyActiveDaysGoal: Math.round(args.goal) };
+    try {
+      await saveConfig(configPath, config);
+      log(`  ✔ Weekly goal set: ${config.weeklyActiveDaysGoal} active days`);
+    } catch {
+      /* non-fatal */
+    }
+  }
 
   // Consent gate before any LLM work.
   let persona = undefined;
@@ -272,8 +294,12 @@ async function main() {
   const historyPath = defaultHistoryPath();
   const history = await loadHistory(historyPath);
   profile.previous = previousSnapshot(history, profile.meta.generatedAtHint);
+  profile.weeklyGoal = config.weeklyActiveDaysGoal;
+  const currentSnap = snapshotFromProfile(profile);
+  // Trait journey: prior runs (excluding a same-day rerun) + this run.
+  profile.history = [...history.filter((s) => s.date !== currentSnap.date), currentSnap];
   try {
-    await saveSnapshot(historyPath, snapshotFromProfile(profile));
+    await saveSnapshot(historyPath, currentSnap);
   } catch {
     /* snapshot failure must never block the report */
   }
@@ -300,9 +326,37 @@ async function main() {
     return;
   }
 
-  // Default: the live dashboard — brain, stats, and chat with your Mirror.
+  // Live refresh: re-read the same source, recompute stats, keep the persona.
+  const rebuild = async (): Promise<Profile> => {
+    const now = Date.now();
+    let ev = events;
+    let p = parsed;
+    let sk = skipped;
+    if (sourceImportPath) {
+      const { importAnyExport } = await import("./ingest/chatgpt-import.js");
+      const imp = await importAnyExport(sourceImportPath);
+      ev = imp.events;
+      p = imp.parsed;
+      sk = imp.skipped;
+    } else {
+      const r = await ingest(projectsDir);
+      ev = r.events;
+      p = r.parsed;
+      sk = r.skipped;
+    }
+    const per = resolvePeriod(args.period, now);
+    const sc = filterByPeriod(ev, per);
+    return {
+      ...profile,
+      meta: { ...profile.meta, eventsParsed: p, eventsSkipped: sk },
+      stats: computeStats(sc, now),
+    };
+  };
+
+  // Default: the live dashboard — brain, stats, chat, and fresh data.
   await serve(profile, {
     port: args.port,
+    rebuild,
     onReady: (url) => {
       log(`  ✔ Dashboard: ${url}  (Ctrl+C to stop)`);
       void openFile(url);

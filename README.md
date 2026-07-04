@@ -6,7 +6,13 @@ Spotify Wrapped told you what you listened to. Mirror tells you *who you are*. R
 
 100% local. Consent-first. One command.
 
-**New in v0.2 — the living Mirror:**
+**New in v0.3 — the habit engine:**
+- 🔥 **Streaks & goals** — current streak, a weekly active-days goal ring (set yours: `--goal 4`), and a GitHub-style activity heatmap.
+- 📊 **Week in review** — this week vs last, right in the dashboard.
+- 📉 **Trait journey** — sparklines of your five traits across every run; watch yourself change.
+- ♻️ **Live refresh** — leave the dashboard running; it re-reads your history every 10 minutes (or on click).
+
+**v0.2 — the living Mirror:**
 - 🧠 **The Brain** — an interactive 3D map of your history: projects, tools, traits, habits, and your voice, force-laid-out around you. Drag to spin, click any node.
 - 🪞 **Talk to your Mirror** — a local chat with a twin built from your own prompts. It talks like you and knows your patterns (runs on your own Claude account).
 - 📈 **A real dashboard** — daily usage chart, work/personal/learning mix, and since-last-run deltas so you can watch yourself change month over month.

@@ -108,6 +108,101 @@ function traitBars(traits: TraitScore[]): string {
     .join("");
 }
 
+// ---- Habit engine: this-week review, goal ring, calendar heatmap ----
+function habitSection(profile: Profile): string {
+  const { stats } = profile;
+  const goal = profile.weeklyGoal ?? 5;
+  const wk = stats.weekly;
+  if (wk.length === 0) return "";
+  const thisWk = wk[wk.length - 1];
+  const lastWk = wk.length > 1 ? wk[wk.length - 2] : undefined;
+  const dp = lastWk ? thisWk.prompts - lastWk.prompts : 0;
+
+  // Goal ring (activeDays / goal).
+  const pct = Math.min(1, thisWk.activeDays / goal);
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  const ring = `<svg viewBox="0 0 130 130" width="130" height="130">
+    <circle cx="65" cy="65" r="${R}" fill="none" stroke="#ffffff14" stroke-width="12"/>
+    <circle cx="65" cy="65" r="${R}" fill="none" stroke="var(--accent)" stroke-width="12" stroke-linecap="round"
+      stroke-dasharray="${(pct * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 65 65)"/>
+    <text x="65" y="60" text-anchor="middle" fill="#f4f4f8" font-size="22" font-weight="800" font-family="Inter,system-ui,sans-serif">${thisWk.activeDays}/${goal}</text>
+    <text x="65" y="80" text-anchor="middle" fill="#9a9aab" font-size="10" font-family="Inter,system-ui,sans-serif">days this week</text>
+  </svg>`;
+
+  // Calendar heatmap: last ~17 weeks of stats.daily, GitHub-style.
+  // Sequential = one hue (accent), stepped by opacity — light→dark carries magnitude.
+  const days = stats.daily.slice(-119); // 17 weeks
+  const maxD = Math.max(...days.map((d) => d.prompts), 1);
+  const CELL = 13;
+  const GAP = 3;
+  let cells = "";
+  let col = 0;
+  for (let i = 0; i < days.length; i++) {
+    const d = days[i];
+    const dow = (new Date(d.date + "T00:00:00").getDay() + 6) % 7; // Mon=0
+    if (i > 0 && dow === 0) col++;
+    const level = d.prompts === 0 ? 0 : Math.ceil((d.prompts / maxD) * 4);
+    const op = [0, 0.25, 0.45, 0.7, 1][level];
+    cells += `<rect x="${col * (CELL + GAP)}" y="${dow * (CELL + GAP)}" width="${CELL}" height="${CELL}" rx="3" fill="${
+      level === 0 ? "#ffffff10" : "var(--accent)"
+    }"${level > 0 ? ` opacity="${op}"` : ""}><title>${d.date}: ${d.prompts} prompts</title></rect>`;
+  }
+  const hmW = (col + 1) * (CELL + GAP);
+  const hmH = 7 * (CELL + GAP);
+
+  return `<section class="snap">
+    <div class="kicker">The habit</div>
+    <div class="habit-row">
+      <div class="habit-card">${ring}<div class="hc-label">weekly goal</div></div>
+      <div class="habit-card"><b class="hc-big">${stats.currentStreakDays}</b><div class="hc-label">day streak ${
+        stats.currentStreakDays >= 3 ? "🔥" : ""
+      }</div></div>
+      <div class="habit-card"><b class="hc-big">${fmt(thisWk.prompts)}</b><div class="hc-label">prompts this week ${
+        lastWk ? `<span class="${dp >= 0 ? "up" : "down"}">(${dp >= 0 ? "+" : ""}${fmt(dp)})</span>` : ""
+      }</div></div>
+    </div>
+    <div class="heatmap-wrap">
+      <svg viewBox="0 0 ${hmW} ${hmH}" width="${hmW}" height="${hmH}">${cells}</svg>
+    </div>
+    <p class="muted small">Every square is a day. Keep the row alive.</p>
+  </section>`;
+}
+
+// ---- Trait journey: sparklines across run history ----
+function traitJourney(profile: Profile): string {
+  const runs = (profile.history ?? []).filter((s) => s.traits && s.traits.length === 5);
+  if (runs.length < 2) return "";
+  const axes = ["curiosity", "precision", "persistence", "trust", "expression"] as const;
+  const W = 220;
+  const H = 44;
+  const rows = axes
+    .map((axis) => {
+      const pts = runs.map((r) => r.traits!.find((t) => t.axis === axis)?.score ?? 50);
+      const step = W / Math.max(1, pts.length - 1);
+      const path = pts
+        .map((s, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(H - (s / 100) * H).toFixed(1)}`)
+        .join(" ");
+      const last = pts[pts.length - 1];
+      const delta = last - pts[0];
+      return `<div class="tj-row">
+        <span class="tj-axis">${axis}</span>
+        <svg viewBox="-4 -6 ${W + 8} ${H + 12}" width="${W}" height="${H}" preserveAspectRatio="none">
+          <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+          <circle cx="${((pts.length - 1) * step).toFixed(1)}" cy="${(H - (last / 100) * H).toFixed(1)}" r="4" fill="var(--accent)"/>
+        </svg>
+        <b class="tj-val">${last}</b>
+        <span class="tj-delta ${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "+" : ""}${delta}</span>
+      </div>`;
+    })
+    .join("");
+  return `<section class="snap">
+    <div class="kicker">Trait journey</div>
+    <h2>You, over ${runs.length} mirrors</h2>
+    <div class="tj">${rows}</div>
+  </section>`;
+}
+
 // ---- Since-last-mirror deltas ----
 function deltaSection(profile: Profile): string {
   const prev = profile.previous;
@@ -368,6 +463,21 @@ h2{font-size:clamp(24px,4vw,38px);letter-spacing:-.02em;margin-bottom:8px}
 footer{color:var(--muted);font-size:13px;padding:30px;text-align:center}
 code{font-family:ui-monospace,monospace;background:#ffffff12;padding:2px 6px;border-radius:6px}
 ${BRAIN_CSS}
+/* habit engine */
+.habit-row{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-bottom:30px}
+.habit-card{background:#15151f;border:1px solid #ffffff14;border-radius:18px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:160px}
+.hc-big{font-size:44px;font-weight:800;color:var(--accent);line-height:1.1}
+.hc-label{color:var(--muted);font-size:13px;margin-top:6px}
+.hc-label .up{color:#4cffb8}.hc-label .down{color:#ff5c7c}
+.heatmap-wrap{max-width:92vw;overflow-x:auto;padding:8px;background:#15151f;border:1px solid #ffffff14;border-radius:16px}
+.tj{display:grid;gap:14px;margin-top:16px}
+.tj-row{display:flex;align-items:center;gap:14px}
+.tj-axis{width:92px;text-align:right;color:var(--muted);font-size:13px;text-transform:capitalize}
+.tj-val{font-size:16px;color:var(--fg);width:30px;text-align:right}
+.tj-delta{font-size:13px;width:36px;text-align:left}
+.tj-delta.up{color:#4cffb8}.tj-delta.down{color:#ff5c7c}
+#refresh-chip{position:fixed;top:14px;right:14px;z-index:49;background:#15151fdd;border:1px solid #ffffff1e;border-radius:999px;padding:7px 14px;font-size:12px;color:var(--muted);cursor:pointer;backdrop-filter:blur(6px)}
+#refresh-chip:hover{color:var(--fg);border-color:var(--accent)}
 /* chat dock */
 #chat-fab{position:fixed;bottom:22px;right:22px;z-index:50;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0b0b10;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 24px #0009}
 #chat-dock{position:fixed;bottom:22px;right:22px;z-index:51;width:min(380px,92vw);height:min(540px,80vh);background:#12121a;border:1px solid #ffffff1e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px #000c}
@@ -393,11 +503,15 @@ ${BRAIN_CSS}
       <div class="dash-num"><b>${fmt(stats.totals.prompts)}</b><span>prompts</span></div>
       <div class="dash-num"><b>${fmt(Math.round(stats.totals.estimatedHours))}h</b><span>active time</span></div>
       <div class="dash-num"><b>${fmt(activeDays)}</b><span>active days</span></div>
-      <div class="dash-num"><b>${stats.rhythm.longestStreakDays}</b><span>day streak</span></div>
+      <div class="dash-num"><b>${stats.rhythm.longestStreakDays}</b><span>best streak</span></div>
     </div>
     ${dailyChart(stats.daily)}
     <p class="muted small">Hover a bar for the day's detail.</p>
   </section>
+
+  ${habitSection(profile)}
+
+  ${traitJourney(profile)}
 
   ${deltaSection(profile)}
 
@@ -425,7 +539,8 @@ ${BRAIN_CSS}
 
   ${
     live
-      ? `<button id="chat-fab" title="Talk to your Mirror">🪞</button>
+      ? `<button id="refresh-chip" title="Re-read your history now">↻ refresh data</button>
+  <button id="chat-fab" title="Talk to your Mirror">🪞</button>
   <div id="chat-dock" hidden>
     <div id="chat-head"><span style="font-size:20px">🪞</span><div><div class="t">Your Mirror</div><div class="s">knows you from ${fmt(
       stats.totals.prompts
@@ -524,6 +639,19 @@ ${BRAIN_CSS}
   }
   var dl = document.getElementById('download-card');
   if(dl) dl.addEventListener('click', exportCard);
+
+  // ---- Live refresh (dashboard only): manual chip + every 10 min ----
+  var chip = document.getElementById('refresh-chip');
+  function refreshData(){
+    if (chip) chip.textContent = '↻ refreshing…';
+    fetch('/api/refresh', {method:'POST'})
+      .then(function(r){ if(r.ok) location.reload(); else if(chip) chip.textContent='↻ refresh failed'; })
+      .catch(function(){ if(chip) chip.textContent='↻ server gone'; });
+  }
+  if (chip) {
+    chip.addEventListener('click', refreshData);
+    setInterval(refreshData, 10*60*1000);
+  }
 
   // ---- Mirror chat (live dashboard only) ----
   var fab = document.getElementById('chat-fab');

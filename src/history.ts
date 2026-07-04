@@ -10,6 +10,33 @@ export function defaultHistoryPath(): string {
   return join(homedir(), ".claude-mirror", "history.json");
 }
 
+// ---- Habit config (weekly goal etc.) ----
+
+export type MirrorConfig = { weeklyActiveDaysGoal: number };
+const DEFAULT_CONFIG: MirrorConfig = { weeklyActiveDaysGoal: 5 };
+
+export function defaultConfigPath(): string {
+  return join(homedir(), ".claude-mirror", "config.json");
+}
+
+export async function loadConfig(path: string): Promise<MirrorConfig> {
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8"));
+    const goal = Number(raw?.weeklyActiveDaysGoal);
+    return {
+      weeklyActiveDaysGoal:
+        Number.isFinite(goal) && goal >= 1 && goal <= 7 ? Math.round(goal) : DEFAULT_CONFIG.weeklyActiveDaysGoal,
+    };
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+export async function saveConfig(path: string, config: MirrorConfig): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(config, null, 2), "utf8");
+}
+
 export async function loadHistory(path: string): Promise<Snapshot[]> {
   try {
     const raw = await readFile(path, "utf8");

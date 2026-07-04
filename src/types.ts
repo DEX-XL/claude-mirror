@@ -77,6 +77,10 @@ export type StatsProfile = {
   };
   /** Zero-filled prompts-per-day series for the usage chart. */
   daily: { date: string; prompts: number }[];
+  /** Habit engine: last 12 weeks (Mon-start), oldest first. */
+  weekly: { weekStart: string; prompts: number; activeDays: number }[];
+  /** Consecutive active days ending at now (yesterday counts, grace of 1). */
+  currentStreakDays: number;
 };
 
 export type TraitAxis =
@@ -139,4 +143,8 @@ export type Profile = {
   stats: StatsProfile;
   persona?: PersonaProfile; // absent in --stats-only or on degradation
   previous?: Snapshot; // most recent prior run, for delta display
+  /** Recent run snapshots (oldest first) — powers the trait journey. */
+  history?: Snapshot[];
+  /** Habit goal: target active days per week (user-configurable). */
+  weeklyGoal?: number;
 };

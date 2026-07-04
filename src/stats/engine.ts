@@ -63,7 +63,19 @@ function longestStreak(dayKeys: Set<string>): number {
   return best;
 }
 
-export function computeStats(events: NormalizedEvent[]): StatsProfile {
+/** Monday-start week key for a timestamp, as YYYY-MM-DD (local time). */
+function weekStart(ts: number): string {
+  const d = new Date(ts);
+  const day = (d.getDay() + 6) % 7; // Mon=0
+  const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day);
+  return dayKey(mon.getTime());
+}
+
+/**
+ * `nowMs` anchors the habit metrics (current streak, last-12-weeks window).
+ * Still pure: same inputs → same output.
+ */
+export function computeStats(events: NormalizedEvent[], nowMs?: number): StatsProfile {
   const prompts = events.filter((e) => e.kind === "user_prompt");
   const asst = events.filter((e) => e.kind === "assistant_turn");
   const tools = events.filter((e) => e.kind === "tool_call");
@@ -212,6 +224,39 @@ export function computeStats(events: NormalizedEvent[]): StatsProfile {
     }
   }
 
+  // ---- Habit engine: weekly aggregates + current streak ----
+  const anchor = nowMs ?? (events.length ? events[events.length - 1].ts : 0);
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const weekly: { weekStart: string; prompts: number; activeDays: number }[] = [];
+  if (anchor > 0) {
+    const thisWeek = weekStart(anchor);
+    const thisWeekTs = new Date(thisWeek + "T00:00:00").getTime();
+    const byWeek = new Map<string, { prompts: number; days: Set<string> }>();
+    for (const p of prompts) {
+      const wk = weekStart(p.ts);
+      const cur = byWeek.get(wk) ?? { prompts: 0, days: new Set<string>() };
+      cur.prompts++;
+      cur.days.add(dayKey(p.ts));
+      byWeek.set(wk, cur);
+    }
+    for (let i = 11; i >= 0; i--) {
+      const wkTs = thisWeekTs - i * 7 * DAY_MS;
+      const wk = dayKey(wkTs);
+      const v = byWeek.get(wk);
+      weekly.push({ weekStart: wk, prompts: v?.prompts ?? 0, activeDays: v?.days.size ?? 0 });
+    }
+  }
+  let currentStreakDays = 0;
+  if (anchor > 0 && dayKeys.size > 0) {
+    // Walk back from today; today itself may be inactive (grace of 1 day).
+    let t = new Date(dayKey(anchor) + "T00:00:00").getTime();
+    if (!dayKeys.has(dayKey(t))) t -= DAY_MS;
+    while (dayKeys.has(dayKey(t))) {
+      currentStreakDays++;
+      t -= DAY_MS;
+    }
+  }
+
   return {
     totals: {
       sessions: sessions.size,
@@ -240,5 +285,7 @@ export function computeStats(events: NormalizedEvent[]): StatsProfile {
     },
     records: { longestSessionMs, biggestDay, promptsBefore9am },
     daily,
+    weekly,
+    currentStreakDays,
   };
 }
