@@ -338,6 +338,7 @@ export function cssFor(accent: string): string {
   return `
 :root{--accent:${accent};--bg:#0d0d12;--fg:#f4f4f8;--muted:#9a9aab}
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
 .snap{position:relative;min-height:88vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:7vh 6vw}
@@ -433,6 +434,7 @@ ${BRAIN_CSS}
 /* chat dock */
 #chat-fab{position:fixed;bottom:22px;right:22px;z-index:50;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#0b0b10;border:none;font-size:24px;cursor:pointer;box-shadow:0 6px 24px #0009}
 #chat-dock{position:fixed;bottom:22px;right:22px;z-index:51;width:min(380px,92vw);height:min(540px,80vh);background:#12121a;border:1px solid #ffffff1e;border-radius:18px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 48px #000c}
+#chat-dock[hidden]{display:none !important}
 #chat-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #ffffff12}
 #chat-head .t{font-weight:800} #chat-head .s{color:var(--muted);font-size:12px}
 #chat-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer}

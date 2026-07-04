@@ -4,6 +4,8 @@ import type { Profile } from "../types.js";
 // Graph data is built here (deterministic); layout + rendering run in the
 // browser on a plain <canvas> — no libraries, no CDN, fully offline.
 
+const VOICE_STOPWORDS = new Set(["just", "thank you", "thanks", "please"]);
+
 // Category palette — validated (dataviz six checks, dark surface #0d0d12):
 // worst adjacent CVD ΔE 15.7, all ≥3:1 contrast, lightness band OK.
 export const BRAIN_COLORS = {
@@ -84,6 +86,7 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
 
   // Voice: quirk phrases.
   for (const q of stats.conversationStyle.quirks.slice(0, 5)) {
+    if (VOICE_STOPWORDS.has(q.phrase.toLowerCase())) continue;
     add({
       id: `q:${q.phrase}`,
       label: `“${q.phrase}”`,
