@@ -97,7 +97,15 @@ export type TraitScore = {
   evidence: string; // short redacted quote or behavioral count
 };
 
+export type MindTopic = {
+  topic: string;
+  note: string;
+  children: { label: string; note: string }[];
+};
+
 export type PersonaProfile = {
+  /** The user's actual mental map: broad topics → drill-down specifics. */
+  mindMap?: MindTopic[];
   /** Plain-English AI summary of the user's history: what they did, how, in simple sentences. */
   summary: string;
   /** The kinds of projects/work the user actually did. */

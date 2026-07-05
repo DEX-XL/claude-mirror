@@ -6,14 +6,16 @@ import type { Profile } from "../types.js";
 
 const VOICE_STOPWORDS = new Set(["just", "thank you", "thanks", "please"]);
 
-// Category palette — validated (dataviz six checks, dark surface #0d0d12):
-// worst adjacent CVD ΔE 15.7, all ≥3:1 contrast, lightness band OK.
+// Monochrome palette (Westworld register): identity is carried by luminance
+// step + node style (filled/hollow/double-ring) + always-on labels — the
+// dataviz relief rule for single-hue identity.
 export const BRAIN_COLORS = {
-  project: "#3987e5", // blue
-  tool: "#199e70", // aqua
-  habit: "#c98500", // yellow
-  trait: "#9085e9", // violet
-  voice: "#d55181", // magenta
+  mind: "#f5f5f5",
+  project: "#d4d4d4",
+  trait: "#a3a3a3",
+  habit: "#8f8f8f",
+  tool: "#737373",
+  voice: "#5c5c5c",
 } as const;
 
 type BrainNode = {
@@ -22,6 +24,8 @@ type BrainNode = {
   cat: keyof typeof BRAIN_COLORS | "you";
   size: number; // 1..10 relative
   detail: string; // shown in the side panel
+  /** Drill-down: children stay hidden until the parent is clicked open. */
+  parent?: string;
 };
 type BrainLink = { s: string; t: string; w: number };
 
@@ -84,18 +88,8 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
     if (!linkedTools.has(name)) link("you", `tool:${name}`, 0.5);
   }
 
-  // Voice: quirk phrases.
-  for (const q of stats.conversationStyle.quirks.slice(0, 5)) {
-    if (VOICE_STOPWORDS.has(q.phrase.toLowerCase())) continue;
-    add({
-      id: `q:${q.phrase}`,
-      label: `“${q.phrase}”`,
-      cat: "voice",
-      size: 2 + Math.min(4, Math.log2(q.count + 1)),
-      detail: `You said this ${q.count} times.`,
-    });
-    link("you", `q:${q.phrase}`, 0.7);
-  }
+  // (Quirk-word nodes removed: the mind map below carries real thoughts.
+  //  Phrasing habits live in the story page only.)
 
   // Models used — part of the toolbelt.
   for (const m of stats.models.split.slice(0, 3)) {
@@ -110,6 +104,24 @@ export function buildGraph(profile: Profile): { nodes: BrainNode[]; links: Brain
   }
 
   if (persona) {
+    // The mind map: broad topics → drill-down children. The core of the brain.
+    (persona.mindMap ?? []).forEach((t, ti) => {
+      const tid = `mind:${ti}`;
+      add({
+        id: tid,
+        label: t.topic,
+        cat: "mind",
+        size: 6.5,
+        detail: `${t.note} — click to open ${t.children.length} thread${t.children.length === 1 ? "" : "s"}.`,
+      });
+      link("you", tid, 2.2);
+      t.children.forEach((c, ci) => {
+        const cid = `mind:${ti}:${ci}`;
+        add({ id: cid, label: c.label, cat: "mind", size: 3, detail: c.note, parent: tid });
+        link(tid, cid, 1.4);
+      });
+    });
+
     // Traits.
     for (const t of persona.traits) {
       add({

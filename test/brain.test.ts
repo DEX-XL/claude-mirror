@@ -39,6 +39,16 @@ const profile: Profile = {
     growthNarrative: "g",
     roast: "r",
     generatedBy: "claude-cli",
+    mindMap: [
+      {
+        topic: "The café business",
+        note: "Keeps returning to WhatsApp automation.",
+        children: [
+          { label: "Automate WhatsApp replies", note: "Asked about this 5 times." },
+          { label: "Menu digitization", note: "Wants a digital menu link." },
+        ],
+      },
+    ],
   },
 };
 
@@ -57,6 +67,25 @@ describe("brain graph", () => {
       expect(ids.has(l.s)).toBe(true);
       expect(ids.has(l.t)).toBe(true);
     }
+  });
+
+  it("builds mind-map topics with drill-down children linked to their parent", () => {
+    const g = buildGraph(profile);
+    const topic = g.nodes.find((n) => n.id === "mind:0");
+    expect(topic?.label).toBe("The café business");
+    expect(topic?.cat).toBe("mind");
+    const child = g.nodes.find((n) => n.id === "mind:0:0");
+    expect(child?.label).toBe("Automate WhatsApp replies");
+    expect(child?.parent).toBe("mind:0");
+    // center links to the topic, topic links to its children (not center directly)
+    expect(g.links.some((l) => l.s === "you" && l.t === "mind:0")).toBe(true);
+    expect(g.links.some((l) => l.s === "mind:0" && l.t === "mind:0:0")).toBe(true);
+    expect(g.links.some((l) => l.s === "you" && l.t === "mind:0:0")).toBe(false);
+  });
+
+  it("no longer emits quirk-word voice nodes (superseded by the mind map)", () => {
+    const g = buildGraph(profile);
+    expect(g.nodes.some((n) => n.id.startsWith("q:"))).toBe(false);
   });
 });
 

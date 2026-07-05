@@ -35,6 +35,8 @@ export function mapUserPrompt(chunk: Chunk): string {
 
 For EACH of the five axes give a score (0-100) and one short evidence string (a quote fragment or a count). Also list up to 3 concrete habits, up to 2 emotional moments (frustration/delight), up to 3 verbatim notable quote fragments, and up to 3 work themes (what was this person actually building or doing? e.g. "WhatsApp marketing for a café", "a Next.js dashboard").
 
+Also extract up to 5 "thoughts": the person's recurring ideas, ambitions, open questions, and obsessions, stated concretely ("wants to revive old café customers", "keeps asking how to automate WhatsApp", "torn between career and passion"). These are mental threads, NEVER filler words or phrasing habits.
+
 Also classify EVERY numbered prompt into exactly one category and return the counts as taskMix:
 - work: building/professional tasks (coding, business ops, marketing, deployment)
 - personal: life admin, personal errands, hobbies, non-professional asks
@@ -48,6 +50,7 @@ Return STRICT JSON matching exactly:
   "emotionalMoments": ["string"],
   "notableQuotes": ["string"],
   "workThemes": ["string"],
+  "thoughts": ["string"],
   "taskMix": {"work": 0, "personal": 0, "learning": 0, "other": 0}
 }
 
@@ -71,7 +74,8 @@ export function reduceUserPrompt(mapResults: { bucket: string; result: MapResult
         `habits: ${JSON.stringify(m.result.habits)}\n` +
         `moments: ${JSON.stringify(m.result.emotionalMoments)}\n` +
         `quotes: ${JSON.stringify(m.result.notableQuotes)}\n` +
-        `work: ${JSON.stringify(m.result.workThemes)}`
+        `work: ${JSON.stringify(m.result.workThemes)}\n` +
+        `thoughts: ${JSON.stringify(m.result.thoughts)}`
     )
     .join("\n\n");
 
@@ -84,6 +88,7 @@ Choose EXACTLY ONE archetype id from:
 ${archetypeList}
 
 Rules specific to this step:
+- mindMap: 2-6 BROAD topics this person actually thinks about (from thoughts/work/moments), each with 1-5 specific children. topic = 2-4 words ("The café business", "Building Mirror"). Each child = a concrete idea, open question, decision, or fun fact, with its note grounded in evidence. This is the person's actual mental map — NEVER phrasing habits, NEVER filler words.
 - summary: 4-6 SHORT plain sentences. What did this person actually do with AI, what are they good at, what stands out. Concrete and simple — a friend should understand it in one read. No poetry.
 - projectTypes: 2-4 kinds of work they did, from the work themes. label = 2-4 words ("Café marketing", "Web app builds"), detail = one plain sentence on what they did there.
 - improvements: 2-3 practical prompting tips tailored to THIS user's actual habits, each one sentence, actionable ("Paste the error AND say what you already tried — you often send just the artifact"). Helpful coach tone, not criticism.
@@ -96,6 +101,7 @@ Rules specific to this step:
 Return STRICT JSON matching exactly:
 {
   "summary": "4-6 short sentences.",
+  "mindMap": [{"topic": "2-4 words", "note": "one sentence", "children": [{"label": "2-6 words", "note": "one sentence"}]}],
   "projectTypes": [{"label": "2-4 words", "detail": "one sentence"}],
   "improvements": ["one sentence", "one sentence"],
   "traits": [{"axis": "...", "score": 0-100, "pole": "...", "evidence": "..."}],

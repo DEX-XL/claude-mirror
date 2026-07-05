@@ -24,6 +24,9 @@ export const MapResultSchema = z.object({
   emotionalMoments: z.array(z.string()).default([]),
   notableQuotes: z.array(z.string()).default([]),
   workThemes: z.array(z.string()).default([]), // what the user was actually building
+  // Recurring thoughts: ideas, ambitions, open questions, obsessions — the
+  // user's actual mental threads, NOT filler words.
+  thoughts: z.array(z.string()).default([]),
   // Counts of sampled prompts by task category (aggregated in code, not by the LLM).
   taskMix: z
     .object({
@@ -39,6 +42,26 @@ export type MapResult = z.infer<typeof MapResultSchema>;
 // ---- Reduce step: final profile ----
 export const ReduceResultSchema = z.object({
   summary: z.string().min(1),
+  // The mind map: broad topics the user actually thinks about, each with
+  // drill-down children (specific ideas / questions / facts + evidence).
+  mindMap: z
+    .array(
+      z.object({
+        topic: z.string().min(1), // 2-4 words, a real theme
+        note: z.string().min(1), // one plain sentence: why this occupies them
+        children: z
+          .array(
+            z.object({
+              label: z.string().min(1), // 2-6 words
+              note: z.string().min(1), // one sentence with evidence
+            })
+          )
+          .min(1)
+          .max(5),
+      })
+    )
+    .min(2)
+    .max(6),
   projectTypes: z
     .array(z.object({ label: z.string().min(1), detail: z.string().min(1) }))
     .min(1)

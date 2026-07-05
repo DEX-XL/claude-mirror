@@ -120,6 +120,7 @@ export async function analyzePersona(
 
     const arch = archetypeById(reduced.archetypeId);
     return {
+      mindMap: reduced.mindMap,
       summary: reduced.summary,
       taskMix,
       projectTypes: reduced.projectTypes,
